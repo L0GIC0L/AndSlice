@@ -17,6 +17,7 @@ import io.github.l0gic0l.andslice.engine.PresetLists
 import io.github.l0gic0l.andslice.engine.PresetType
 import io.github.l0gic0l.andslice.engine.PreviewInfo
 import io.github.l0gic0l.andslice.engine.SliceResult
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,6 +30,8 @@ enum class ViewMode { Plate, Preview }
 class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("andslice", Context.MODE_PRIVATE)
+    /** Completed once the native engine has loaded the profiles; engine calls wait for it. */
+    private val engineReady = CompletableDeferred<Unit>()
 
     var initError by mutableStateOf<String?>(null); private set
     var ready by mutableStateOf(false); private set
@@ -74,6 +77,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 withContext(Dispatchers.IO) { initEngine(app) }
                 ready = true
+                engineReady.complete(Unit)
             } catch (t: Throwable) {
                 initError = t.message ?: t.toString()
             }
@@ -171,10 +175,13 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Overrides belong to a preset type; picking another preset of that type discards them. */
+    /**
+     * Overrides belong to a preset type; picking another preset of that type discards them,
+     * except the quick settings, which are choices about the model rather than the profile.
+     */
     private fun dropOverrides(type: PresetType) {
         val defs = optionDefs ?: return
-        val kept = overrides.filterKeys { defs.typeOf(it) != type }
+        val kept = overrides.filterKeys { it in QUICK_SETTINGS || defs.typeOf(it) != type }
         if (kept.size != overrides.size) {
             overrides = kept
             message = "Your ${type.name.lowercase()} setting changes were reset for the new profile."
@@ -315,12 +322,6 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         setTransform(obj.id, obj.transform(rx = r[0], ry = r[1], rz = r[2]))
     }
 
-    fun scaleSelected(percent: Double) {
-        val obj = selectedObject ?: return
-        val s = (percent / 100.0).coerceIn(0.01, 100.0)
-        setTransform(obj.id, obj.transform(sx = s, sy = s, sz = s))
-    }
-
     fun deleteSelected() {
         val id = selectedId.takeIf { it >= 0 } ?: return
         launchEngine {
@@ -445,6 +446,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             if (busy != null) busyMessage = busy
             try {
+                engineReady.await()
                 withContext(Dispatchers.Default) { block() }
             } catch (t: Throwable) {
                 message = t.message ?: t.toString()
@@ -457,6 +459,8 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         const val BUNDLE_ASSET = "profiles/AnycubicKobra3.ini"
         val MODEL_EXTENSIONS = setOf("stl", "3mf", "obj", "amf")
+        /** Keys behind the quick settings bar, kept when the print profile changes. */
+        val QUICK_SETTINGS = setOf("support_material", "support_material_buildplate_only", "fill_density", "brim_width")
         private const val KEY_PRINTER = "printer"
         private const val KEY_PRINT = "print"
         private const val KEY_FILAMENT = "filament"

@@ -50,6 +50,17 @@ void Engine::init(const std::string& data_dir, const std::string& resources_dir,
     set_resources_dir(resources_dir);
     boost::filesystem::create_directories(data_dir);
 
+    // Start from an empty plate; init runs once per app process (or per test).
+    m_model->clear_objects();
+    m_meshes.clear();
+    m_selected = -1;
+    touch_plate();
+    {
+        std::lock_guard<std::mutex> preview_lock(m_preview_mutex);
+        m_preview.reset();
+        ++m_preview_revision;
+    }
+
     auto bundle = std::make_unique<PresetBundle>();
     bundle->set_default_suppressed(true);
     bundle->load_configbundle(bundle_path, PresetBundle::LoadConfigBundleAttribute::LoadSystem,

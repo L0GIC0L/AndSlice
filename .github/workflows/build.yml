@@ -40,9 +40,11 @@ jobs:
       - name: Fetch PrusaSlicer sources
         run: scripts/fetch-prusaslicer.sh
 
-      - name: Cache dependencies
+      # Restore and save are separate steps so the dependencies are kept even
+      # when a later step fails.
+      - name: Restore dependencies
         id: deps-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: build/deps/${{ matrix.abi }}/install
           key: deps-${{ matrix.abi }}-${{ hashFiles('scripts/build-deps.sh', 'scripts/env.sh') }}
@@ -51,8 +53,15 @@ jobs:
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: scripts/build-deps.sh ${{ matrix.abi }}
 
+      - name: Save dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/deps/${{ matrix.abi }}/install
+          key: ${{ steps.deps-cache.outputs.cache-primary-key }}
+
       - name: Restore compiler cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .ccache
           key: ccache-${{ matrix.abi }}-${{ github.sha }}
@@ -62,6 +71,13 @@ jobs:
         run: |
           scripts/build-native.sh ${{ matrix.abi }}
           ccache --show-stats
+
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.abi }}-${{ github.sha }}
 
       - uses: actions/upload-artifact@v4
         with:

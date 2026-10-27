@@ -111,7 +111,7 @@ fun PlateBottomBar(vm: SlicerViewModel) {
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                PickerChip(Icons.Default.RadioButtonChecked, shortPresetName(vm.printer), "Printer") { sheet = "printer" }
+                PickerChip(Icons.Default.RadioButtonChecked, shortPresetName(vm.printer), "Printer profile") { sheet = "printer" }
                 PickerChip(Icons.Default.Layers, shortPresetName(vm.print), "Print profile") { sheet = "print" }
                 FilamentChips(vm) { slot -> sheet = "filament:$slot" }
             }

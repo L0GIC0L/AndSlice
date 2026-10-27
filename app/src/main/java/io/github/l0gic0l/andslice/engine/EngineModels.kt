@@ -1,0 +1,232 @@
+package io.github.l0gic0l.andslice.engine
+
+import org.json.JSONArray
+import org.json.JSONObject
+
+/** Presets of the bundle; prints and filaments are those compatible with [printer]. */
+data class PresetLists(
+    val printer: String,
+    val printers: List<String>,
+    val prints: List<String>,
+    val filaments: List<String>,
+    val defaultPrint: String,
+    val defaultFilament: String,
+) {
+    companion object {
+        fun parse(json: String): PresetLists {
+            val o = JSONObject(json)
+            return PresetLists(
+                printer = o.getString("printer"),
+                printers = o.getJSONArray("printers").strings(),
+                prints = o.getJSONArray("prints").strings(),
+                filaments = o.getJSONArray("filaments").strings(),
+                defaultPrint = o.optString("default_print"),
+                defaultFilament = o.optString("default_filament"),
+            )
+        }
+    }
+}
+
+data class PlateObject(
+    val id: Long,
+    val name: String,
+    val offset: List<Double>,
+    val rotation: List<Double>,
+    val scale: List<Double>,
+    val size: List<Double>,
+    val triangles: Int,
+    val outside: Boolean,
+) {
+    /** Transform in the layout NativeEngine.setTransform expects. */
+    fun transform(
+        x: Double = offset[0], y: Double = offset[1],
+        rx: Double = rotation[0], ry: Double = rotation[1], rz: Double = rotation[2],
+        sx: Double = scale[0], sy: Double = scale[1], sz: Double = scale[2],
+    ) = doubleArrayOf(x, y, rx, ry, rz, sx, sy, sz)
+
+    companion object {
+        fun parseList(json: String): List<PlateObject> {
+            val a = JSONArray(json)
+            return (0 until a.length()).map { i ->
+                val o = a.getJSONObject(i)
+                PlateObject(
+                    id = o.getLong("id"),
+                    name = o.optString("name"),
+                    offset = o.getJSONArray("offset").doubles(),
+                    rotation = o.getJSONArray("rotation").doubles(),
+                    scale = o.getJSONArray("scale").doubles(),
+                    size = o.getJSONArray("size").doubles(),
+                    triangles = o.optInt("triangles"),
+                    outside = o.optBoolean("outside"),
+                )
+            }
+        }
+    }
+}
+
+data class SliceResult(
+    val ok: Boolean,
+    val canceled: Boolean,
+    val error: String?,
+    val path: String?,
+    val printTime: String,
+    val printTimeSeconds: Double,
+    val filamentMm: Double,
+    val filamentGrams: Double,
+    val cost: Double,
+    val layerZs: List<Double>,
+    val warnings: List<String>,
+) {
+    companion object {
+        fun parse(json: String): SliceResult {
+            val o = JSONObject(json)
+            return SliceResult(
+                ok = o.optBoolean("ok"),
+                canceled = o.optBoolean("canceled"),
+                error = if (o.has("error")) o.getString("error") else null,
+                path = if (o.has("path")) o.getString("path") else null,
+                printTime = o.optString("print_time"),
+                printTimeSeconds = o.optDouble("print_time_s", 0.0),
+                filamentMm = o.optDouble("filament_mm", 0.0),
+                filamentGrams = o.optDouble("filament_g", 0.0),
+                cost = o.optDouble("cost", 0.0),
+                layerZs = o.optJSONArray("layers")?.doubles() ?: emptyList(),
+                warnings = o.optJSONArray("warnings")?.strings() ?: emptyList(),
+            )
+        }
+    }
+}
+
+/** Metadata of one PrusaSlicer configuration option (from PrintConfigDef). */
+data class OptionDef(
+    val key: String,
+    val label: String,
+    val fullLabel: String,
+    val category: String,
+    val tooltip: String,
+    val sidetext: String,
+    val type: String,
+    val vector: Boolean,
+    val nullable: Boolean,
+    val multiline: Boolean,
+    /** 0 = simple, 1 = advanced, 2 = expert, as in PrusaSlicer's mode switch. */
+    val mode: Int,
+    val min: Double?,
+    val max: Double?,
+    val enumValues: List<Pair<String, String>>,
+    val enumOpen: Boolean,
+)
+
+enum class PresetType { Print, Filament, Printer }
+
+data class OptionDefs(val byType: Map<PresetType, List<OptionDef>>) {
+    fun typeOf(key: String): PresetType? = byType.entries.firstOrNull { (_, l) -> l.any { it.key == key } }?.key
+    fun find(key: String): OptionDef? = byType.values.asSequence().flatten().firstOrNull { it.key == key }
+
+    companion object {
+        fun parse(json: String): OptionDefs {
+            val o = JSONObject(json)
+            fun list(name: String): List<OptionDef> {
+                val a = o.getJSONArray(name)
+                return (0 until a.length()).map { i ->
+                    val d = a.getJSONObject(i)
+                    val enumValues = d.optJSONArray("enum")?.let { e ->
+                        (0 until e.length()).map { j ->
+                            val v = e.getJSONObject(j)
+                            v.getString("value") to v.optString("label", v.getString("value"))
+                        }
+                    } ?: emptyList()
+                    OptionDef(
+                        key = d.getString("key"),
+                        label = d.optString("label"),
+                        fullLabel = d.optString("full_label"),
+                        category = d.optString("category"),
+                        tooltip = d.optString("tooltip"),
+                        sidetext = d.optString("sidetext"),
+                        type = d.optString("type"),
+                        vector = d.optBoolean("vector"),
+                        nullable = d.optBoolean("nullable"),
+                        multiline = d.optBoolean("multiline"),
+                        mode = d.optInt("mode"),
+                        min = if (d.has("min")) d.getDouble("min") else null,
+                        max = if (d.has("max")) d.getDouble("max") else null,
+                        enumValues = enumValues,
+                        enumOpen = d.optBoolean("enum_open"),
+                    )
+                }
+            }
+            return OptionDefs(
+                mapOf(
+                    PresetType.Print to list("print"),
+                    PresetType.Filament to list("filament"),
+                    PresetType.Printer to list("printer"),
+                )
+            )
+        }
+    }
+}
+
+data class RoleInfo(val id: Int, val color: Long, val used: Boolean, val timeSeconds: Double)
+
+data class PreviewInfo(
+    val loaded: Boolean,
+    val layers: Int,
+    val timeSeconds: Double,
+    val viewType: Int,
+    val roles: List<RoleInfo>,
+    /** Legend for gradient view types: value and color. */
+    val range: List<Pair<Double, Long>>,
+) {
+    companion object {
+        val EMPTY = PreviewInfo(false, 0, 0.0, 0, emptyList(), emptyList())
+
+        fun parse(json: String): PreviewInfo {
+            val o = JSONObject(json)
+            val roles = o.optJSONArray("roles")?.let { a ->
+                (0 until a.length()).map { i ->
+                    val r = a.getJSONObject(i)
+                    RoleInfo(r.getInt("id"), parseColor(r.getString("color")), r.optBoolean("used"), r.optDouble("time", 0.0))
+                }
+            } ?: emptyList()
+            val range = o.optJSONArray("range")?.let { a ->
+                (0 until a.length()).map { i ->
+                    val r = a.getJSONObject(i)
+                    r.getDouble("value") to parseColor(r.getString("color"))
+                }
+            } ?: emptyList()
+            return PreviewInfo(
+                loaded = o.optBoolean("loaded"),
+                layers = o.optInt("layers"),
+                timeSeconds = o.optDouble("time", 0.0),
+                viewType = o.optInt("view_type"),
+                roles = roles,
+                range = range,
+            )
+        }
+
+        private fun parseColor(hex: String): Long = 0xFF000000L or hex.removePrefix("#").toLong(16)
+    }
+}
+
+/** Names of libvgcode's EGCodeExtrusionRole values, matching PrusaSlicer's legend. */
+val EXTRUSION_ROLE_NAMES = listOf(
+    "None", "Perimeter", "External perimeter", "Overhang perimeter", "Internal infill",
+    "Solid infill", "Top solid infill", "Ironing", "Bridge infill", "Gap fill", "Skirt/Brim",
+    "Support material", "Support material interface", "Wipe tower", "Custom",
+)
+
+/** libvgcode EViewType values offered in the preview, in PrusaSlicer's order. */
+val PREVIEW_VIEW_TYPES = listOf(
+    0 to "Feature type", 1 to "Height", 2 to "Width", 3 to "Speed", 4 to "Actual speed",
+    5 to "Fan speed", 6 to "Temperature", 7 to "Volumetric flow rate", 9 to "Layer time",
+)
+
+/** libvgcode EOptionType ids used by the preview toggles. */
+object PreviewOption {
+    const val TRAVELS = 0
+    const val RETRACTIONS = 2
+    const val SEAMS = 4
+}
+
+private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
+private fun JSONArray.doubles(): List<Double> = (0 until length()).map { getDouble(it) }

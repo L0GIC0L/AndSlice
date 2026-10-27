@@ -1,0 +1,297 @@
+// JNI entry points for io.github.l0gic0l.andslice.engine.NativeEngine.
+#include <jni.h>
+
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "Engine.hpp"
+#include "SceneRenderer.hpp"
+
+using andslice::Engine;
+using andslice::SceneRenderer;
+
+namespace {
+
+JavaVM* g_vm = nullptr;
+
+std::string to_string(JNIEnv* env, jstring s)
+{
+    if (s == nullptr)
+        return {};
+    const char* chars = env->GetStringUTFChars(s, nullptr);
+    std::string out(chars);
+    env->ReleaseStringUTFChars(s, chars);
+    return out;
+}
+
+jstring to_jstring(JNIEnv* env, const std::string& s) { return env->NewStringUTF(s.c_str()); }
+
+void throw_java(JNIEnv* env, const char* message)
+{
+    jclass cls = env->FindClass("java/lang/RuntimeException");
+    env->ThrowNew(cls, message);
+}
+
+// Runs fn and turns C++ exceptions into Java RuntimeExceptions.
+template<class Fn, class R = decltype(std::declval<Fn>()())>
+R guarded(JNIEnv* env, Fn&& fn, R fallback = R())
+{
+    try {
+        return fn();
+    } catch (const std::exception& ex) {
+        throw_java(env, ex.what());
+    } catch (...) {
+        throw_java(env, "Unknown native error");
+    }
+    return fallback;
+}
+
+template<class Fn>
+void guarded_void(JNIEnv* env, Fn&& fn)
+{
+    guarded(env, [&]() { fn(); return 0; }, 0);
+}
+
+// JNIEnv for the current thread, attaching it as a daemon when it is a native
+// worker thread (progress callbacks may arrive from TBB threads).
+JNIEnv* current_env()
+{
+    JNIEnv* env = nullptr;
+    if (g_vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED)
+        g_vm->AttachCurrentThreadAsDaemon(&env, nullptr);
+    return env;
+}
+
+} // namespace
+
+extern "C" {
+
+JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
+{
+    g_vm = vm;
+    return JNI_VERSION_1_6;
+}
+
+#define FN(name) Java_io_github_l0gic0l_andslice_engine_NativeEngine_##name
+
+// ------------------------------------------------------------------- profiles
+
+JNIEXPORT void JNICALL FN(init)(JNIEnv* env, jobject, jstring data_dir, jstring resources_dir, jstring bundle)
+{
+    guarded_void(env, [&] {
+        Engine::get().init(to_string(env, data_dir), to_string(env, resources_dir), to_string(env, bundle));
+    });
+}
+
+JNIEXPORT jstring JNICALL FN(presetsJson)(JNIEnv* env, jobject, jstring printer)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().presets_json(to_string(env, printer))); }, (jstring) nullptr);
+}
+
+JNIEXPORT jstring JNICALL FN(configJson)(JNIEnv* env, jobject, jstring printer, jstring print, jstring filament)
+{
+    return guarded(env, [&] {
+        return to_jstring(env, Engine::get().config_json(to_string(env, printer), to_string(env, print), to_string(env, filament)));
+    }, (jstring) nullptr);
+}
+
+JNIEXPORT jstring JNICALL FN(optionDefsJson)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().option_defs_json()); }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(setPrinter)(JNIEnv* env, jobject, jstring printer)
+{
+    guarded_void(env, [&] { Engine::get().set_printer(to_string(env, printer)); });
+}
+
+// ------------------------------------------------------------------- plate
+
+JNIEXPORT void JNICALL FN(setArrangeDistance)(JNIEnv* env, jobject, jfloat mm)
+{
+    guarded_void(env, [&] { Engine::get().set_arrange_distance(mm); });
+}
+
+JNIEXPORT jstring JNICALL FN(addModel)(JNIEnv* env, jobject, jstring path, jstring name)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().add_model(to_string(env, path), to_string(env, name))); }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(removeObject)(JNIEnv* env, jobject, jlong id)
+{
+    guarded_void(env, [&] { Engine::get().remove_object(uint64_t(id)); });
+}
+
+JNIEXPORT void JNICALL FN(clearPlate)(JNIEnv* env, jobject)
+{
+    guarded_void(env, [&] { Engine::get().clear_plate(); });
+}
+
+JNIEXPORT jlong JNICALL FN(duplicateObject)(JNIEnv* env, jobject, jlong id)
+{
+    return guarded(env, [&] { return jlong(Engine::get().duplicate_object(uint64_t(id))); }, jlong(0));
+}
+
+JNIEXPORT void JNICALL FN(setTransform)(JNIEnv* env, jobject, jlong id, jdoubleArray t)
+{
+    guarded_void(env, [&] {
+        if (env->GetArrayLength(t) < 8)
+            throw std::invalid_argument("transform needs 8 values");
+        double values[8];
+        env->GetDoubleArrayRegion(t, 0, 8, values);
+        Engine::get().set_transform(uint64_t(id), values);
+    });
+}
+
+static void read_ray(JNIEnv* env, jfloatArray origin, jfloatArray dir, float o[3], float d[3])
+{
+    if (env->GetArrayLength(origin) < 3 || env->GetArrayLength(dir) < 3)
+        throw std::invalid_argument("ray needs 3 components");
+    env->GetFloatArrayRegion(origin, 0, 3, o);
+    env->GetFloatArrayRegion(dir, 0, 3, d);
+}
+
+JNIEXPORT jboolean JNICALL FN(layOnFace)(JNIEnv* env, jobject, jlong id, jfloatArray origin, jfloatArray dir)
+{
+    return guarded(env, [&] {
+        float o[3], d[3];
+        read_ray(env, origin, dir, o, d);
+        return jboolean(Engine::get().lay_on_face(uint64_t(id), o, d));
+    }, jboolean(false));
+}
+
+JNIEXPORT jlong JNICALL FN(pick)(JNIEnv* env, jobject, jfloatArray origin, jfloatArray dir)
+{
+    return guarded(env, [&] {
+        float o[3], d[3];
+        read_ray(env, origin, dir, o, d);
+        return jlong(Engine::get().pick(o, d));
+    }, jlong(-1));
+}
+
+JNIEXPORT void JNICALL FN(arrange)(JNIEnv* env, jobject)
+{
+    guarded_void(env, [&] { Engine::get().arrange(); });
+}
+
+JNIEXPORT void JNICALL FN(centerObject)(JNIEnv* env, jobject, jlong id)
+{
+    guarded_void(env, [&] { Engine::get().center_object(uint64_t(id)); });
+}
+
+JNIEXPORT jstring JNICALL FN(objectsJson)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().objects_json()); }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(select)(JNIEnv* env, jobject, jlong id)
+{
+    guarded_void(env, [&] { Engine::get().select(int64_t(id)); });
+}
+
+// ------------------------------------------------------------------- slicing
+
+JNIEXPORT jstring JNICALL FN(slice)(JNIEnv* env, jobject, jstring printer, jstring print, jstring filament,
+                                   jobjectArray keys, jobjectArray values, jstring output, jobject listener)
+{
+    return guarded(env, [&] {
+        andslice::SliceRequest req;
+        req.printer     = to_string(env, printer);
+        req.print       = to_string(env, print);
+        req.filament    = to_string(env, filament);
+        req.output_path = to_string(env, output);
+        const jsize n = env->GetArrayLength(keys);
+        for (jsize i = 0; i < n; ++i) {
+            auto k = static_cast<jstring>(env->GetObjectArrayElement(keys, i));
+            auto v = static_cast<jstring>(env->GetObjectArrayElement(values, i));
+            req.overrides.emplace_back(to_string(env, k), to_string(env, v));
+            env->DeleteLocalRef(k);
+            env->DeleteLocalRef(v);
+        }
+
+        jobject global_listener = listener ? env->NewGlobalRef(listener) : nullptr;
+        jmethodID on_progress = nullptr;
+        if (global_listener) {
+            jclass cls = env->GetObjectClass(global_listener);
+            on_progress = env->GetMethodID(cls, "onProgress", "(ILjava/lang/String;)V");
+        }
+        const std::string result = Engine::get().slice(req, [&](int percent, const std::string& message) {
+            if (!global_listener || !on_progress)
+                return;
+            JNIEnv* e = current_env();
+            jstring msg = e->NewStringUTF(message.c_str());
+            e->CallVoidMethod(global_listener, on_progress, jint(percent), msg);
+            if (e->ExceptionCheck())
+                e->ExceptionClear();
+            e->DeleteLocalRef(msg);
+        });
+        if (global_listener)
+            env->DeleteGlobalRef(global_listener);
+        return to_jstring(env, result);
+    }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(cancelSlice)(JNIEnv*, jobject)
+{
+    Engine::get().cancel_slice();
+}
+
+JNIEXPORT void JNICALL FN(clearPreview)(JNIEnv* env, jobject)
+{
+    guarded_void(env, [&] { Engine::get().clear_preview(); });
+}
+
+// ------------------------------------------------------------------- renderer (GL thread)
+
+JNIEXPORT jstring JNICALL FN(rendererSurfaceCreated)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return to_jstring(env, SceneRenderer::get().on_surface_created()); }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(rendererSurfaceChanged)(JNIEnv* env, jobject, jint width, jint height)
+{
+    guarded_void(env, [&] { SceneRenderer::get().on_surface_changed(width, height); });
+}
+
+JNIEXPORT void JNICALL FN(rendererDraw)(JNIEnv* env, jobject, jfloatArray view, jfloatArray projection, jint mode)
+{
+    guarded_void(env, [&] {
+        float v[16], p[16];
+        env->GetFloatArrayRegion(view, 0, 16, v);
+        env->GetFloatArrayRegion(projection, 0, 16, p);
+        SceneRenderer::get().draw(v, p, mode);
+    });
+}
+
+JNIEXPORT void JNICALL FN(previewSetLayerRange)(JNIEnv* env, jobject, jint first, jint last)
+{
+    guarded_void(env, [&] { SceneRenderer::get().preview().set_layer_range(uint32_t(first), uint32_t(last)); });
+}
+
+JNIEXPORT void JNICALL FN(previewSetMoveFraction)(JNIEnv* env, jobject, jfloat fraction)
+{
+    guarded_void(env, [&] { SceneRenderer::get().preview().set_move_fraction(fraction); });
+}
+
+JNIEXPORT void JNICALL FN(previewSetViewType)(JNIEnv* env, jobject, jint type)
+{
+    guarded_void(env, [&] { SceneRenderer::get().preview().set_view_type(type); });
+}
+
+JNIEXPORT void JNICALL FN(previewSetOptionVisible)(JNIEnv* env, jobject, jint option, jboolean visible)
+{
+    guarded_void(env, [&] { SceneRenderer::get().preview().set_option_visible(option, visible); });
+}
+
+JNIEXPORT void JNICALL FN(previewSetRoleVisible)(JNIEnv* env, jobject, jint role, jboolean visible)
+{
+    guarded_void(env, [&] { SceneRenderer::get().preview().set_role_visible(role, visible); });
+}
+
+JNIEXPORT jstring JNICALL FN(previewInfoJson)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return to_jstring(env, SceneRenderer::get().preview().info_json()); }, (jstring) nullptr);
+}
+
+} // extern "C"

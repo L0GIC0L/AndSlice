@@ -1,0 +1,92 @@
+diff --git a/src/libvgcode/src/ViewerImpl.cpp b/src/libvgcode/src/ViewerImpl.cpp
+index e2a0093..d851fd1 100644
+--- a/src/libvgcode/src/ViewerImpl.cpp
++++ b/src/libvgcode/src/ViewerImpl.cpp
+@@ -343,7 +343,7 @@ void ViewerImpl::TextureData::init(size_t vertices_count)
+     m_tex_ids = std::vector<TexIds>(m_count);
+ }
+ 
+-void ViewerImpl::TextureData::set_positions(const std::vector<Vec3>& positions)
++void ViewerImpl::TextureData::set_positions(const std::vector<std::array<float, 4>>& positions)
+ {
+     if (m_count == 0)
+         return;
+@@ -377,17 +377,17 @@ void ViewerImpl::TextureData::set_positions(const std::vector<Vec3>& positions)
+         glsafe(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+         glsafe(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0));
+         if (remaining >= tex_capacity) {
+-            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGB, GL_FLOAT, &positions[offset]));
++            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_FLOAT, &positions[offset]));
+             m_tex_ids[i].positions.second = w * h;
+         }
+         else {
+             // the last row is only partially fitted with data, send it separately
+-            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGB, GL_FLOAT, nullptr));
+-            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h - 1), GL_RGB, GL_FLOAT, &positions[offset]));
+-            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLsizei>(h - 1), static_cast<GLsizei>(remaining % w), 1, GL_RGB, GL_FLOAT, &positions[offset + w * (h - 1)]));
++            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_FLOAT, nullptr));
++            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h - 1), GL_RGBA, GL_FLOAT, &positions[offset]));
++            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLsizei>(h - 1), static_cast<GLsizei>(remaining % w), 1, GL_RGBA, GL_FLOAT, &positions[offset + w * (h - 1)]));
+             m_tex_ids[i].positions.second = w * (h - 1) + remaining % w;
+         }
+-        m_positions_size += m_tex_ids[i].positions.second * sizeof(Vec3);
++        m_positions_size += m_tex_ids[i].positions.second * sizeof(std::array<float, 4>);
+ 
+         remaining = (remaining > tex_capacity) ? remaining - tex_capacity: 0;
+     }
+@@ -396,7 +396,7 @@ void ViewerImpl::TextureData::set_positions(const std::vector<Vec3>& positions)
+     glsafe(glPixelStorei(GL_UNPACK_ALIGNMENT, curr_unpack_alignment));
+ }
+ 
+-void ViewerImpl::TextureData::set_heights_widths_angles(const std::vector<Vec3>& heights_widths_angles)
++void ViewerImpl::TextureData::set_heights_widths_angles(const std::vector<std::array<float, 4>>& heights_widths_angles)
+ {
+     if (m_count == 0)
+         return;
+@@ -430,17 +430,17 @@ void ViewerImpl::TextureData::set_heights_widths_angles(const std::vector<Vec3>&
+         glsafe(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+         glsafe(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0));
+         if (remaining >= tex_capacity) {
+-            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGB, GL_FLOAT, &heights_widths_angles[offset]));
++            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_FLOAT, &heights_widths_angles[offset]));
+             m_tex_ids[i].heights_widths_angles.second = w * h;
+         }
+         else {
+             // the last row is only partially fitted with data, send it separately
+-            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGB, GL_FLOAT, nullptr));
+-            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h - 1), GL_RGB, GL_FLOAT, &heights_widths_angles[offset]));
+-            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLsizei>(h - 1), static_cast<GLsizei>(remaining % w), 1, GL_RGB, GL_FLOAT, &heights_widths_angles[offset + w * (h - 1)]));
++            glsafe(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA, GL_FLOAT, nullptr));
++            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h - 1), GL_RGBA, GL_FLOAT, &heights_widths_angles[offset]));
++            glsafe(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLsizei>(h - 1), static_cast<GLsizei>(remaining % w), 1, GL_RGBA, GL_FLOAT, &heights_widths_angles[offset + w * (h - 1)]));
+             m_tex_ids[i].heights_widths_angles.second = w * (h - 1) + remaining % w;
+         }
+-        m_height_width_angle_size += m_tex_ids[i].heights_widths_angles.second * sizeof(Vec3);
++        m_height_width_angle_size += m_tex_ids[i].heights_widths_angles.second * sizeof(std::array<float, 4>);
+ 
+         remaining = (remaining > tex_capacity) ? remaining - tex_capacity : 0;
+     }
+@@ -1807,7 +1807,7 @@ void ViewerImpl::update_color_ranges()
+ void ViewerImpl::update_heights_widths()
+ {
+ #ifdef ENABLE_OPENGL_ES
+-    std::vector<Vec3> heights_widths_angles;
++    std::vector<Vec4> heights_widths_angles;
+     heights_widths_angles.reserve(m_vertices.size());
+     extract_pos_and_or_hwa(m_vertices, m_travels_radius, m_wipes_radius, m_valid_lines_bitset, nullptr, &heights_widths_angles);
+     m_texture_data.set_heights_widths_angles(heights_widths_angles);
+diff --git a/src/libvgcode/src/ViewerImpl.hpp b/src/libvgcode/src/ViewerImpl.hpp
+index 8e112dc..12a9e4a 100644
+--- a/src/libvgcode/src/ViewerImpl.hpp
++++ b/src/libvgcode/src/ViewerImpl.hpp
+@@ -343,8 +343,8 @@ private:
+     {
+     public:
+         void init(size_t vertices_count);
+-        void set_positions(const std::vector<Vec3>& positions);
+-        void set_heights_widths_angles(const std::vector<Vec3>& heights_widths_angles);
++        void set_positions(const std::vector<std::array<float, 4>>& positions);
++        void set_heights_widths_angles(const std::vector<std::array<float, 4>>& heights_widths_angles);
+         void set_colors(const std::vector<float>& colors);
+         void set_enabled_segments(const std::vector<uint32_t>& enabled_segments);
+         void set_enabled_options(const std::vector<uint32_t>& enabled_options);

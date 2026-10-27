@@ -264,6 +264,18 @@ JNIEXPORT void JNICALL FN(rendererDraw)(JNIEnv* env, jobject, jfloatArray view, 
     });
 }
 
+JNIEXPORT void JNICALL FN(rendererSetPalette)(JNIEnv* env, jobject, jfloatArray colors)
+{
+    guarded_void(env, [&] {
+        constexpr int n = SceneRenderer::PaletteSize * 4;
+        if (env->GetArrayLength(colors) < n)
+            throw std::invalid_argument("palette needs " + std::to_string(n) + " values");
+        float values[n];
+        env->GetFloatArrayRegion(colors, 0, n, values);
+        SceneRenderer::get().set_palette(values);
+    });
+}
+
 JNIEXPORT void JNICALL FN(previewSetLayerRange)(JNIEnv* env, jobject, jint first, jint last)
 {
     guarded_void(env, [&] { SceneRenderer::get().preview().set_layer_range(uint32_t(first), uint32_t(last)); });

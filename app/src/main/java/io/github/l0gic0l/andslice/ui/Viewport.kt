@@ -1,12 +1,14 @@
 package io.github.l0gic0l.andslice.ui
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -15,15 +17,16 @@ import io.github.l0gic0l.andslice.ViewMode
 import io.github.l0gic0l.andslice.engine.NativeEngine
 import io.github.l0gic0l.andslice.engine.PreviewInfo
 import io.github.l0gic0l.andslice.engine.PreviewOption
+import io.github.l0gic0l.andslice.ui.scene.OrbitCamera
 import io.github.l0gic0l.andslice.ui.scene.SceneCallbacks
 import io.github.l0gic0l.andslice.ui.scene.SceneView
 
 /** The 3D plate / G-code preview, kept in sync with the view model. */
 @Composable
-fun Viewport(vm: SlicerViewModel, modifier: Modifier = Modifier) {
+fun Viewport(vm: SlicerViewModel, camera: OrbitCamera, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val view = remember {
-        SceneView(context, object : SceneCallbacks {
+        SceneView(context, camera = camera, callbacks = object : SceneCallbacks {
             override fun selectedId() = vm.selectedId
             override fun onTap(objectId: Long, origin: FloatArray, dir: FloatArray) = vm.onTap(objectId, origin, dir)
             override fun onDragObject(id: Long, x: Double, y: Double, done: Boolean) = vm.dragObject(id, x, y, done)
@@ -49,9 +52,11 @@ fun Viewport(vm: SlicerViewModel, modifier: Modifier = Modifier) {
         onDispose { lifecycle.removeObserver(observer) }
     }
 
-    // Frame the bed once the printer is known.
-    LaunchedEffect(vm.printer, vm.config["bed_shape"]) {
+    // Frame the bed once the printer is known, and again only when the bed changes.
+    LaunchedEffect(vm.config["bed_shape"]) {
         val bed = vm.config["bed_shape"] ?: return@LaunchedEffect
+        if (camera.framedBed == bed) return@LaunchedEffect
+        camera.framedBed = bed
         val pts = bed.split(',').mapNotNull { p ->
             val xy = p.split('x')
             if (xy.size == 2) xy[0].toFloatOrNull()?.let { x -> xy[1].toFloatOrNull()?.let { y -> x to y } } else null
@@ -61,6 +66,23 @@ fun Viewport(vm: SlicerViewModel, modifier: Modifier = Modifier) {
         val minY = pts.minOf { it.second }; val maxY = pts.maxOf { it.second }
         view.camera.reset((minX + maxX) / 2, (minY + maxY) / 2, maxOf(maxX - minX, maxY - minY))
         view.publishCamera()
+    }
+
+    // Scene colors come from the Material color scheme, so they follow dynamic color and dark mode.
+    val scheme = MaterialTheme.colorScheme
+    val palette = listOf(
+        scheme.surfaceContainerLow, scheme.surfaceContainerHighest, scheme.outlineVariant.copy(alpha = 0.8f),
+        scheme.outline.copy(alpha = 0.9f), scheme.secondary, scheme.primary, scheme.error,
+    )
+    LaunchedEffect(palette) {
+        val values = FloatArray(palette.size * 4)
+        palette.forEachIndexed { i, c: Color ->
+            values[i * 4] = c.red
+            values[i * 4 + 1] = c.green
+            values[i * 4 + 2] = c.blue
+            values[i * 4 + 3] = c.alpha
+        }
+        view.onGlThread { NativeEngine.rendererSetPalette(values) }
     }
 
     LaunchedEffect(vm.mode) {

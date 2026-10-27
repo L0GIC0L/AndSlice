@@ -56,6 +56,8 @@ object NativeEngine {
     external fun rendererSurfaceCreated(): String
     external fun rendererSurfaceChanged(width: Int, height: Int)
     external fun rendererDraw(view: FloatArray, projection: FloatArray, mode: Int)
+    /** 7 RGBA colors: background, bed, grid, bed edges, object, selected object, object outside the bed. */
+    external fun rendererSetPalette(colors: FloatArray)
     external fun previewSetLayerRange(first: Int, last: Int)
     external fun previewSetMoveFraction(fraction: Float)
     external fun previewSetViewType(type: Int)

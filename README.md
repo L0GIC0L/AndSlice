@@ -1,11 +1,12 @@
 # AndSlice
 
-A 3D model slicer for Android, tuned for the **Anycubic Kobra 3**.
+A 3D model slicer for Android, tuned for the **Anycubic Kobra 3**, with OctoPrint printing.
 
 AndSlice runs PrusaSlicer's actual slicing engine on the phone. **libslic3r**
 (PrusaSlicer 2.9.6) generates the G-code, and PrusaSlicer's own G-code viewer
 (**libvgcode**) draws the toolpath preview. A Kotlin/Jetpack Compose UI sits on
-top, replacing the desktop interface.
+top, replacing the desktop interface. It follows Material 3 and Material You, including dynamic color on
+Android 12+ and light and dark themes.
 
 ## Features
 
@@ -21,6 +22,9 @@ top, replacing the desktop interface.
 - Print time, filament length, weight and cost estimates
 - Thumbnails embedded in the G-code for the printer's screen
 - Save the G-code anywhere (USB stick through OTG, Downloads, cloud drives) or share it to another app
+- **OctoPrint:** find OctoPrint on the network, upload G-code or upload and start the print, then watch
+  temperatures and progress and pause or cancel the job. Moonraker's OctoPrint compatibility also works, for
+  example a Kobra 3 running Rinkhals.
 
 ## Download
 
@@ -38,6 +42,17 @@ Android 9 or newer with OpenGL ES 3.0 is required.
 1. Import a model, pick the nozzle, print profile and filament, then tap **Slice**.
 2. Check the preview, then tap **Save G-code** and pick a USB stick (through a USB-C OTG adapter) or any folder.
 3. Put the USB stick into the Kobra 3 and start the file from the printer's screen.
+
+### Over Wi-Fi with OctoPrint
+
+1. Open **Printer** (printer icon in the top bar), tap **Find** or enter the address (for example
+   `http://octopi.local`), and paste an API key from OctoPrint's **Settings → Application Keys**.
+2. Tap **Test**, then **Save**.
+3. After slicing, tap **Print** in the preview and choose **Upload and print** or **Upload only**.
+
+The Printer screen shows the state, hotend and bed temperatures and job progress, with pause and cancel.
+OctoPrint is usually reached over plain HTTP on the local network, so the app allows cleartext HTTP. The API
+key is stored in the app's private storage.
 
 The start G-code calls Anycubic's `G9111` macro, which heats up, levels the bed and draws the purge line, just
 as Anycubic Slicer Next does.
@@ -62,6 +77,7 @@ Repeat the two native steps with `x86_64` for emulator builds.
 - `scripts/build-deps.sh host && scripts/build-native.sh host andslice_cli` builds a desktop command-line
   harness around the same engine code the app uses:
   `build/native/host/andslice_cli --bundle app/src/main/assets/profiles/AnycubicKobra3.ini -o out/ model.stl`
+- `./gradlew testDebugUnitTest` runs the JVM tests, including the OctoPrint client against a fake server.
 - `./gradlew connectedDebugAndroidTest` runs the on-device tests: a full Kobra 3 slice through the JNI
   bridge, and an app launch test. CI runs them on an x86_64 emulator.
 
@@ -82,7 +98,8 @@ secrets: `ANDSLICE_KEYSTORE_BASE64` (`base64 -w0 release.jks`), `ANDSLICE_KEYSTO
 | `native/src/jni_bridge.cpp` | JNI entry points for `NativeEngine.kt` |
 | `native/src/stubs/` | Stand-ins for the parts of libslic3r that are not built (see below) |
 | `app/src/main/assets/profiles/AnycubicKobra3.ini` | Kobra 3 profiles in PrusaSlicer's config bundle format |
-| `app/src/main/java/...` | Compose UI, view model, GL view and gestures |
+| `app/src/main/java/.../octoprint/` | OctoPrint REST client and network discovery |
+| `app/src/main/java/...` | Compose UI (Material 3), view models, GL view and gestures |
 
 PrusaSlicer's sources are used unmodified apart from `patches/0001-libvgcode-opengl-es-rgba32f.patch`. That
 patch moves libvgcode's OpenGL ES path to RGBA32F textures, which the desktop path already uses since
@@ -96,7 +113,8 @@ PrusaSlicer issue #12908. Without it, the ES path in 2.9.6 does not compile.
 - No STEP import, since OpenCASCADE is not built.
 - Single extruder. Multi-color printing with the ACE Pro is not set up.
 - 64-bit devices only.
-- No network upload to the printer yet. Transfer the G-code by USB.
+- Direct network printing to the Kobra 3 needs OctoPrint or Moonraker (for example through the Rinkhals
+  firmware). Anycubic's own cloud and LAN protocol are not supported.
 
 ## License
 

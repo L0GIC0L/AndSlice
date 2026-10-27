@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.l0gic0l.andslice.engine.NativeEngine
@@ -128,12 +129,12 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun savePresetSelection() {
-        prefs.edit()
-            .putString(KEY_PRINTER, printer)
-            .putString(KEY_PRINT, print)
-            .putString(KEY_FILAMENT, filament)
-            .putString(KEY_OVERRIDES, JSONObject(overrides).toString())
-            .apply()
+        prefs.edit {
+            putString(KEY_PRINTER, printer)
+            putString(KEY_PRINT, print)
+            putString(KEY_FILAMENT, filament)
+            putString(KEY_OVERRIDES, JSONObject(overrides).toString())
+        }
     }
 
     fun redraw() {

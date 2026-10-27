@@ -31,18 +31,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The finished library only depends on the native sources and build scripts;
+      # app-only changes reuse it and skip the long C++ build.
+      - name: Restore native library
+        id: lib-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/${{ matrix.abi }}/libandslice.so
+          key: lib-${{ matrix.abi }}-${{ hashFiles('native/**', 'scripts/**', 'patches/**') }}
+
       - name: Install NDK, CMake and ccache
+        if: steps.lib-cache.outputs.cache-hit != 'true'
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" "cmake;$CMAKE_VERSION" > /dev/null
           sudo apt-get update -q && sudo apt-get install -y -q ccache
 
       - name: Fetch PrusaSlicer sources
+        if: steps.lib-cache.outputs.cache-hit != 'true'
         run: scripts/fetch-prusaslicer.sh
 
       # Restore and save are separate steps so the dependencies are kept even
       # when a later step fails.
       - name: Restore dependencies
+        if: steps.lib-cache.outputs.cache-hit != 'true'
         id: deps-cache
         uses: actions/cache/restore@v4
         with:
@@ -50,17 +62,18 @@ jobs:
           key: deps-${{ matrix.abi }}-${{ hashFiles('scripts/build-deps.sh', 'scripts/env.sh') }}
 
       - name: Build dependencies
-        if: steps.deps-cache.outputs.cache-hit != 'true'
+        if: steps.lib-cache.outputs.cache-hit != 'true' && steps.deps-cache.outputs.cache-hit != 'true'
         run: scripts/build-deps.sh ${{ matrix.abi }}
 
       - name: Save dependencies
-        if: steps.deps-cache.outputs.cache-hit != 'true'
+        if: steps.lib-cache.outputs.cache-hit != 'true' && steps.deps-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: build/deps/${{ matrix.abi }}/install
           key: ${{ steps.deps-cache.outputs.cache-primary-key }}
 
       - name: Restore compiler cache
+        if: steps.lib-cache.outputs.cache-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: .ccache
@@ -68,16 +81,24 @@ jobs:
           restore-keys: ccache-${{ matrix.abi }}-
 
       - name: Build libandslice.so
+        if: steps.lib-cache.outputs.cache-hit != 'true'
         run: |
           scripts/build-native.sh ${{ matrix.abi }}
           ccache --show-stats
 
       - name: Save compiler cache
-        if: always()
+        if: always() && steps.lib-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: .ccache
           key: ccache-${{ matrix.abi }}-${{ github.sha }}
+
+      - name: Save native library
+        if: steps.lib-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/${{ matrix.abi }}/libandslice.so
+          key: ${{ steps.lib-cache.outputs.cache-primary-key }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -122,6 +143,9 @@ jobs:
         run: |
           echo "$ANDSLICE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ANDSLICE_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Build release APKs
         env:

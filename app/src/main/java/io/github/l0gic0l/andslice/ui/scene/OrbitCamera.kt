@@ -17,6 +17,9 @@ class OrbitCamera {
     var aspect = 1f
     private val fovDeg = 40f
 
+    /** Bed the camera was last framed on, so returning to the plate keeps the user's view. */
+    var framedBed: String? = null
+
     val view = FloatArray(16)
     val projection = FloatArray(16)
     private val viewProj = FloatArray(16)

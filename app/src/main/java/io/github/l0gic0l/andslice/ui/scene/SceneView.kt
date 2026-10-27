@@ -32,9 +32,12 @@ interface SceneCallbacks {
  * into camera moves, object selection and object dragging.
  */
 @SuppressLint("ViewConstructor")
-class SceneView(context: Context, private val callbacks: SceneCallbacks) : GLSurfaceView(context) {
+class SceneView(
+    context: Context,
+    private val callbacks: SceneCallbacks,
+    val camera: OrbitCamera,
+) : GLSurfaceView(context) {
 
-    val camera = OrbitCamera()
     @Volatile var mode: Int = 0
     private val mainHandler = Handler(Looper.getMainLooper())
 

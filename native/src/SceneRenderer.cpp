@@ -256,13 +256,13 @@ void SceneRenderer::draw_bed(const float viewproj[16])
     glBindVertexArray(m_bed_vao);
 
     glDepthMask(GL_FALSE);
-    glUniform4f(color, 0.22f, 0.23f, 0.26f, 1.f);
+    glUniform4fv(color, 1, m_palette[Bed]);
     glDrawArrays(GL_TRIANGLE_FAN, m_bed_fill_first, m_bed_fill_count);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glUniform4f(color, 0.55f, 0.57f, 0.62f, 0.35f);
+    glUniform4fv(color, 1, m_palette[Grid]);
     glDrawArrays(GL_LINES, m_bed_grid_first, m_bed_grid_count);
-    glUniform4f(color, 0.75f, 0.77f, 0.82f, 0.6f);
+    glUniform4fv(color, 1, m_palette[Edges]);
     glDrawArrays(GL_LINES, m_bed_edge_first, m_bed_edge_count);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
@@ -285,15 +285,14 @@ void SceneRenderer::draw_objects(const float viewproj[16], bool dimmed)
         if (it == m_meshes.end() || it->second.index_count == 0)
             continue;
         glUniformMatrix4fv(model, 1, GL_FALSE, o.transform.data());
-        // PrusaSlicer's plater colors: yellow objects, orange selection, blue when outside the bed.
         if (dimmed)
-            glUniform4f(color, 0.8f, 0.8f, 0.8f, 0.12f);
+            glUniform4f(color, m_palette[Object][0], m_palette[Object][1], m_palette[Object][2], 0.12f);
         else if (o.outside)
-            glUniform4f(color, 0.35f, 0.55f, 0.95f, 1.f);
+            glUniform4fv(color, 1, m_palette[Outside]);
         else if (o.selected)
-            glUniform4f(color, 1.0f, 0.55f, 0.15f, 1.f);
+            glUniform4fv(color, 1, m_palette[Selected]);
         else
-            glUniform4f(color, 1.0f, 0.86f, 0.3f, 1.f);
+            glUniform4fv(color, 1, m_palette[Object]);
         glBindVertexArray(it->second.vao);
         glDrawElements(GL_TRIANGLES, it->second.index_count, GL_UNSIGNED_INT, nullptr);
     }
@@ -302,6 +301,13 @@ void SceneRenderer::draw_objects(const float viewproj[16], bool dimmed)
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
     }
+}
+
+void SceneRenderer::set_palette(const float colors[PaletteSize * 4])
+{
+    for (int i = 0; i < PaletteSize; ++i)
+        for (int c = 0; c < 4; ++c)
+            m_palette[i][c] = colors[i * 4 + c];
 }
 
 void SceneRenderer::draw(const float view[16], const float projection[16], int mode)
@@ -313,7 +319,7 @@ void SceneRenderer::draw(const float view[16], const float projection[16], int m
     mul4(projection, view, viewproj);
 
     glViewport(0, 0, m_width, m_height);
-    glClearColor(0.11f, 0.12f, 0.14f, 1.f);
+    glClearColor(m_palette[Background][0], m_palette[Background][1], m_palette[Background][2], 1.f);
     glClearDepthf(1.f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);

@@ -18,15 +18,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +32,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -48,9 +44,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,28 +102,38 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            TabRow(selectedTabIndex = tab) {
+            PrimaryTabRow(selectedTabIndex = tab) {
                 PresetType.entries.forEachIndexed { i, t ->
                     Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t.name) })
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                MODES.forEachIndexed { i, name ->
-                    FilterChip(selected = mode == i, onClick = { mode = i }, label = { Text(name) })
-                }
-            }
-            OutlinedTextField(
+            TextField(
                 value = query,
                 onValueChange = { query = it },
                 leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear search") }
+                },
                 placeholder = { Text("Search settings") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                shape = CircleShape,
+                colors = TextFieldDefaults.colors(
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp).testTag("settings-search"),
             )
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                MODES.forEachIndexed { i, name ->
+                    SegmentedButton(
+                        selected = mode == i,
+                        onClick = { mode = i },
+                        shape = SegmentedButtonDefaults.itemShape(i, MODES.size),
+                    ) { Text(name) }
+                }
+            }
 
             val options = defs.byType[type].orEmpty().filter { d ->
                 d.mode <= mode && d.key !in HIDDEN_KEYS &&
@@ -131,13 +147,10 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
                             category,
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                            modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp),
                         )
                     }
-                    items(list, key = { it.key }) { def ->
-                        OptionRow(vm, def, onHelp = { help = def })
-                        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.surfaceVariant)
-                    }
+                    items(list, key = { it.key }) { def -> OptionRow(vm, def, onHelp = { help = def }) }
                 }
             }
         }
@@ -166,30 +179,26 @@ private val HIDDEN_KEYS = setOf(
 private fun OptionRow(vm: SlicerViewModel, def: OptionDef, onHelp: () -> Unit) {
     val value = vm.value(def.key) ?: ""
     val modified = def.key in vm.overrides
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f).clickable(onClick = onHelp)) {
-            Text(
-                def.fullLabel,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (modified) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (modified) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface,
-            )
-            if (def.sidetext.isNotEmpty()) {
-                Text(def.sidetext, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    ListItem(
+        headlineContent = {
+            Text(def.fullLabel, color = if (modified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        },
+        supportingContent = {
+            val notes = listOfNotNull(def.sidetext.takeIf { it.isNotEmpty() }, "changed".takeIf { modified })
+            if (notes.isNotEmpty()) Text(notes.joinToString(" · "))
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.widthIn(min = 72.dp, max = 168.dp)) {
+                    OptionEditor(def, value) { vm.setOverride(def.key, it) }
+                }
+                if (modified) {
+                    IconButton(onClick = { vm.resetOverride(def.key) }) { Icon(Icons.Default.RestartAlt, "Reset to profile") }
+                }
             }
-        }
-        Box(Modifier.widthIn(min = 96.dp, max = 190.dp)) {
-            OptionEditor(def, value) { vm.setOverride(def.key, it) }
-        }
-        if (modified) {
-            IconButton(onClick = { vm.resetOverride(def.key) }) { Icon(Icons.Default.RestartAlt, "Reset to profile") }
-        } else {
-            IconButton(onClick = onHelp) { Icon(Icons.Default.Info, "About this setting", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-    }
+        },
+        modifier = Modifier.clickable(onClick = onHelp),
+    )
 }
 
 @Composable

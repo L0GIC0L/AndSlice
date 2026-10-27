@@ -13,13 +13,14 @@ import io.github.l0gic0l.andslice.ui.theme.AndSliceTheme
 
 class MainActivity : ComponentActivity() {
     private val viewModel: SlicerViewModel by viewModels()
+    private val printerViewModel: PrinterViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             AndSliceTheme {
-                AndSliceApp(viewModel)
+                AndSliceApp(viewModel, printerViewModel)
             }
         }
         if (savedInstanceState == null) handleIntent(intent)

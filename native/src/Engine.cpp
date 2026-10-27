@@ -14,6 +14,8 @@
 
 #include <arrange-wrapper/ArrangeSettingsView.hpp>
 #include <arrange-wrapper/ModelArrange.hpp>
+#include <arrange-wrapper/Scene.hpp>
+#include <arrange-wrapper/SceneBuilder.hpp>
 
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/BuildVolume.hpp"
@@ -22,6 +24,7 @@
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/MultipleBeds.hpp"
+#include "libslic3r/ObjectID.hpp"
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
@@ -54,6 +57,7 @@ void Engine::init(const std::string& data_dir, const std::string& resources_dir,
     m_model->clear_objects();
     m_meshes.clear();
     m_selected = -1;
+    m_wipe_tower = {};
     touch_plate();
     {
         std::lock_guard<std::mutex> preview_lock(m_preview_mutex);
@@ -126,10 +130,12 @@ std::string Engine::presets_json(const std::string& printer)
     out["default_print"]    = selected.config.opt_string("default_print_profile");
     const auto* def_fil = selected.config.option<ConfigOptionStrings>("default_filament_profile");
     out["default_filament"] = def_fil && !def_fil->values.empty() ? def_fil->values.front() : std::string();
+    out["extruders"] = selected.config.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
     return out.dump();
 }
 
-DynamicPrintConfig Engine::resolve_config(const std::string& printer, const std::string& print, const std::string& filament)
+DynamicPrintConfig Engine::resolve_config(const std::string& printer, const std::string& print,
+                                          const std::vector<std::string>& filaments)
 {
     PresetBundle& b = *m_bundle;
     if (!b.printers.select_preset_by_name(printer, true))
@@ -137,17 +143,24 @@ DynamicPrintConfig Engine::resolve_config(const std::string& printer, const std:
     b.update_compatible(PresetSelectCompatibleType::Always);
     if (!b.prints.select_preset_by_name(print, true))
         throw RuntimeError("Unknown print profile: " + print);
-    if (!b.filaments.select_preset_by_name(filament, true))
-        throw RuntimeError("Unknown filament profile: " + filament);
-    for (ExtruderFilaments& ef : b.extruders_filaments)
-        ef.select_filament(filament);
+    if (filaments.empty())
+        throw RuntimeError("No filament profile selected.");
+    for (const std::string& filament : filaments)
+        if (b.filaments.find_preset(filament) == nullptr)
+            throw RuntimeError("Unknown filament profile: " + filament);
+    b.filaments.select_preset_by_name(filaments.front(), true);
+    // One filament per extruder of the printer. This also sizes the purge volume matrix.
+    b.update_multi_material_filament_presets();
+    for (size_t i = 0; i < b.extruders_filaments.size(); ++i)
+        b.extruders_filaments[i].select_filament(filaments[std::min(i, filaments.size() - 1)], true);
     return b.full_config();
 }
 
-std::string Engine::config_json(const std::string& printer, const std::string& print, const std::string& filament)
+std::string Engine::config_json(const std::string& printer, const std::string& print,
+                                const std::vector<std::string>& filaments)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    DynamicPrintConfig config = resolve_config(printer, print, filament);
+    DynamicPrintConfig config = resolve_config(printer, print, filaments);
     json out = json::object();
     for (const std::string& key : config.keys())
         out[key] = config.opt_serialize(key);
@@ -250,22 +263,34 @@ std::shared_ptr<const MeshData> Engine::mesh_for(const ModelObject& object)
         if (id == object.id().id)
             return mesh;
 
-    indexed_triangle_set its = object.raw_indexed_triangle_set();
+    // Like ModelObject::raw_indexed_triangle_set(), but remembers where each model part starts,
+    // so the renderer can draw every part in the color of its filament.
     auto mesh = std::make_shared<MeshData>();
-    mesh->positions.reserve(its.vertices.size() * 3);
     mesh->min = { FLT_MAX, FLT_MAX, FLT_MAX };
     mesh->max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
-    for (const stl_vertex& v : its.vertices) {
-        for (int i = 0; i < 3; ++i) {
-            mesh->positions.push_back(v[i]);
-            mesh->min[i] = std::min(mesh->min[i], v[i]);
-            mesh->max[i] = std::max(mesh->max[i], v[i]);
+    for (const ModelVolume* volume : object.volumes) {
+        if (!volume->is_model_part())
+            continue;
+        const indexed_triangle_set& its = volume->mesh().its;
+        const Transform3d& m = volume->get_matrix();
+        const uint32_t base  = uint32_t(mesh->positions.size() / 3);
+        const uint32_t first = uint32_t(mesh->indices.size());
+        for (const stl_vertex& p : its.vertices) {
+            const Vec3f v = (m * p.cast<double>()).cast<float>();
+            for (int i = 0; i < 3; ++i) {
+                mesh->positions.push_back(v[i]);
+                mesh->min[i] = std::min(mesh->min[i], v[i]);
+                mesh->max[i] = std::max(mesh->max[i], v[i]);
+            }
         }
+        const bool flip = volume->is_left_handed();
+        for (const stl_triangle_vertex_indices& f : its.indices) {
+            mesh->indices.push_back(base + uint32_t(f[flip ? 1 : 0]));
+            mesh->indices.push_back(base + uint32_t(f[flip ? 0 : 1]));
+            mesh->indices.push_back(base + uint32_t(f[2]));
+        }
+        mesh->parts.push_back({ first, uint32_t(mesh->indices.size()) - first });
     }
-    mesh->indices.reserve(its.indices.size() * 3);
-    for (const stl_triangle_vertex_indices& f : its.indices)
-        for (int i = 0; i < 3; ++i)
-            mesh->indices.push_back(uint32_t(f[i]));
     m_meshes.emplace_back(object.id().id, mesh);
     return mesh;
 }
@@ -310,11 +335,86 @@ void Engine::place_new_objects(size_t first_new)
     } else {
         for (size_t i = first_new; i < m_model->objects.size(); ++i)
             m_model->objects[i]->ensure_on_bed();
-        arr2::ArrangeSettings settings;
-        settings.set_distance_from_objects(m_arrange_distance);
-        arrange_objects(*m_model, arr2::to_arrange_bed(bed_points(m_bed), Vec2crd{0, 0}), settings);
+        arrange_plate();
     }
     m_model->update_print_volume_state(build_volume(m_bed));
+}
+
+namespace {
+
+// The wipe tower as an item for PrusaSlicer's arrangement, following the
+// desktop app's ArrangeableWT / WTH (slic3r/GUI/Jobs/ArrangeJob2.cpp).
+class ArrangeableWipeTower : public arr2::ArrangeableWipeTowerBase
+{
+public:
+    ArrangeableWipeTower(const WipeTowerShape& shape, Vec2d& position, std::function<bool(int)> selected)
+        : arr2::ArrangeableWipeTowerBase{ wipe_tower_instance_id(0), outline(shape), 0, std::move(selected) }
+        , m_position{ position }, m_start{ position }
+    {}
+
+    void transform(const Vec2d& translation, double /*rotation*/) override { m_position = m_start + translation; }
+
+private:
+    static Polygon outline(const WipeTowerShape& s)
+    {
+        const double b = s.brim;
+        Polygon poly({ scaled(Vec2d(-b, -b)), scaled(Vec2d(s.width + b, -b)),
+                       scaled(Vec2d(s.width + b, s.depth + b)), scaled(Vec2d(-b, s.depth + b)) });
+        poly.translate(scaled(Vec2d(s.x, s.y)));
+        return poly;
+    }
+
+    Vec2d& m_position;
+    Vec2d  m_start;
+};
+
+class WipeTowerHandler : public arr2::WipeTowerHandler
+{
+public:
+    WipeTowerHandler(const WipeTowerShape& shape, Vec2d& position) : m_shape{ shape }, m_position{ position } {}
+
+    void visit(std::function<void(arr2::Arrangeable&)> fn) override
+    {
+        ArrangeableWipeTower wt{ m_shape, m_position, m_selected };
+        fn(wt);
+    }
+    void visit(std::function<void(const arr2::Arrangeable&)> fn) const override
+    {
+        ArrangeableWipeTower wt{ m_shape, m_position, m_selected };
+        fn(wt);
+    }
+    void     set_selection_predicate(std::function<bool(int)> pred) override { m_selected = std::move(pred); }
+    ObjectID get_id() const override { return wipe_tower_instance_id(0); }
+
+private:
+    WipeTowerShape           m_shape;
+    Vec2d&                   m_position;
+    std::function<bool(int)> m_selected = [](int) { return false; };
+};
+
+} // namespace
+
+void Engine::arrange_plate()
+{
+    arr2::ArrangeSettings settings;
+    settings.set_distance_from_objects(m_arrange_distance);
+    const arr2::ArrangeBed bed = arr2::to_arrange_bed(bed_points(m_bed), Vec2crd{0, 0});
+    if (!m_wipe_tower.visible) {
+        arrange_objects(*m_model, bed, settings);
+        return;
+    }
+    // Arrange the wipe tower together with the objects, as PrusaSlicer does.
+    Vec2d position(m_wipe_tower.x, m_wipe_tower.y);
+    std::vector<AnyPtr<arr2::WipeTowerHandler>> handlers;
+    handlers.emplace_back(std::make_unique<WipeTowerHandler>(m_wipe_tower, position));
+    arr2::arrange(arr2::SceneBuilder{}
+                      .set_bed(bed)
+                      .set_arrange_settings(settings)
+                      .set_wipe_tower_handlers(std::move(handlers))
+                      .set_model(*m_model));
+    m_wipe_tower.x = float(position.x());
+    m_wipe_tower.y = float(position.y());
+    m_model->wipe_tower().position = position;
 }
 
 void Engine::set_arrange_distance(float mm)
@@ -511,11 +611,44 @@ void Engine::arrange()
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_model->objects.empty())
         return;
-    arr2::ArrangeSettings settings;
-    settings.set_distance_from_objects(m_arrange_distance);
-    arrange_objects(*m_model, arr2::to_arrange_bed(bed_points(m_bed), Vec2crd{0, 0}), settings);
+    arrange_plate();
     m_model->update_print_volume_state(build_volume(m_bed));
     touch_plate();
+}
+
+void Engine::set_extruder(uint64_t id, int part, int extruder)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    if (o == nullptr || extruder < 1)
+        return;
+    if (part < 0) {
+        o->config.set("extruder", extruder);
+        for (ModelVolume* v : o->volumes)
+            if (v->is_model_part())
+                v->config.erase("extruder");
+    } else {
+        int index = 0;
+        for (ModelVolume* v : o->volumes)
+            if (v->is_model_part() && index++ == part)
+                v->config.set("extruder", extruder);
+    }
+    touch_plate();
+}
+
+void Engine::set_wipe_tower(const WipeTowerShape& shape)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_wipe_tower = shape;
+    m_model->wipe_tower().position = Vec2d(shape.x, shape.y);
+    m_model->wipe_tower().rotation = 0.;
+    touch_plate();
+}
+
+WipeTowerShape Engine::wipe_tower() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_wipe_tower;
 }
 
 void Engine::center_object(uint64_t id)
@@ -546,6 +679,14 @@ std::string Engine::objects_json()
         const ModelInstance* inst = o->instances.front();
         const BoundingBoxf3 bb = o->instance_bounding_box(0);
         const Vec3d off = inst->get_offset(), rot = inst->get_rotation(), scale = inst->get_scaling_factor();
+        json parts = json::array();
+        bool painted = false;
+        for (const ModelVolume* v : o->volumes) {
+            painted = painted || v->is_mm_painted();
+            if (v->is_model_part())
+                parts.push_back({ {"name", v->name}, {"extruder", std::max(v->extruder_id(), 1)} });
+        }
+        const int extruder = o->config.has("extruder") ? std::max(o->config.extruder(), 1) : 1;
         out.push_back({
             {"id", o->id().id},
             {"name", o->name},
@@ -555,6 +696,9 @@ std::string Engine::objects_json()
             {"size", {bb.size().x(), bb.size().y(), bb.size().z()}},
             {"triangles", o->facets_count()},
             {"outside", inst->print_volume_state != ModelInstancePVS_Inside},
+            {"extruder", extruder},
+            {"parts", parts},
+            {"painted", painted},
         });
     }
     return out.dump();
@@ -579,6 +723,9 @@ std::vector<PlateObject> Engine::plate_snapshot()
         po.mesh     = mesh_for(*o);
         po.selected = int64_t(po.id) == m_selected;
         po.outside  = o->instances.front()->print_volume_state != ModelInstancePVS_Inside;
+        for (const ModelVolume* v : o->volumes)
+            if (v->is_model_part())
+                po.part_extruders.push_back(std::max(v->extruder_id(), 1));
         const Transform3f m = o->instances.front()->get_matrix().cast<float>();
         std::copy(m.data(), m.data() + 16, po.transform.begin());
         out.push_back(std::move(po));
@@ -607,7 +754,7 @@ std::string Engine::slice(const SliceRequest& request, const ProgressFn& progres
         Model model;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            config = resolve_config(request.printer, request.print, request.filament);
+            config = resolve_config(request.printer, request.print, request.filaments);
             model  = *m_model;
         }
         for (const auto& [key, value] : request.overrides) {
@@ -682,7 +829,24 @@ std::string Engine::slice(const SliceRequest& request, const ProgressFn& progres
             result["warnings"] = warnings;
         }
 
-        std::vector<std::string> colors = config.option<ConfigOptionStrings>("extruder_colour")->values;
+        // Tool colors as in PrusaSlicer: the extruder color, or the filament color when that is empty.
+        const auto& extruder_colors = config.option<ConfigOptionStrings>("extruder_colour")->values;
+        const auto& filament_colors = config.option<ConfigOptionStrings>("filament_colour")->values;
+        const size_t extruders = config.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
+        std::vector<std::string> colors;
+        for (size_t i = 0; i < extruders; ++i) {
+            const std::string e = i < extruder_colors.size() ? extruder_colors[i] : std::string();
+            const std::string f = filament_colors.empty() ? std::string() : filament_colors[std::min(i, filament_colors.size() - 1)];
+            colors.push_back(e.empty() ? f : e);
+        }
+        if (print.has_wipe_tower() && !print.wipe_tower_data().tool_changes.empty()) {
+            const WipeTowerData& wt = print.wipe_tower_data();
+            result["wipe_tower"] = { {"depth", wt.depth}, {"brim", wt.brim_width}, {"height", wt.height} };
+        }
+        std::vector<int> used;
+        for (const auto& [extruder, length] : print.print_statistics().filament_stats)
+            used.push_back(int(extruder) + 1);
+        result["extruders_used"] = used;
         auto preview = make_preview(gcode_result, colors);
         result["layers"] = preview_layer_zs(*preview);
         {

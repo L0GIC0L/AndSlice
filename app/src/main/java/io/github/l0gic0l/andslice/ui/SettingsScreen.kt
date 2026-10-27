@@ -1,5 +1,19 @@
 package io.github.l0gic0l.andslice.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Badge
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,16 +81,37 @@ import io.github.l0gic0l.andslice.engine.PresetType
 
 private val MODES = listOf("Simple", "Advanced", "Expert")
 
-/** Every PrusaSlicer option of the selected presets, grouped like PrusaSlicer's tabs. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Every PrusaSlicer option of the selected presets, on PrusaSlicer's own pages and in its option groups. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
     val defs = vm.optionDefs ?: return
+    val context = LocalContext.current
+    val layout = remember {
+        SettingsLayout.parse(context.assets.open("settings_layout.json").bufferedReader().use { it.readText() })
+    }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var mode by rememberSaveable { mutableIntStateOf(1) }
     var query by rememberSaveable { mutableStateOf("") }
+    var selectedPage by rememberSaveable(tab) { mutableStateOf<String?>(null) }
     var help by remember { mutableStateOf<OptionDef?>(null) }
     val type = PresetType.entries[tab]
+
+    val visible = defs.byType[type].orEmpty().filter { it.mode <= mode && it.key !in HIDDEN_KEYS }
+    val sections = remember(type, mode, defs) { layout.sections(type, visible) }
+    val pages = sections.map { it.page }.distinct()
+    val page = selectedPage?.takeIf { it in pages } ?: pages.firstOrNull()
+    val searching = query.isNotBlank()
+    val shown = if (searching) {
+        sections.mapNotNull { s ->
+            s.options.filter { it.matches(query) || s.title.contains(query, true) || s.page.contains(query, true) }
+                .takeIf { it.isNotEmpty() }?.let { s.copy(options = it) }
+        }
+    } else {
+        sections.filter { it.page == page }
+    }
+    val listState = rememberLazyListState()
+    LaunchedEffect(tab, page, searching) { listState.scrollToItem(0) }
 
     Scaffold(
         topBar = {
@@ -87,7 +122,8 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
                         Text("Settings")
                         val preset = when (type) {
                             PresetType.Print -> vm.print
-                            PresetType.Filament -> vm.filament
+                            PresetType.Filament ->
+                                if (vm.multiMaterial) vm.filaments.joinToString(" · ") { shortFilamentName(it) } else vm.filament
                             PresetType.Printer -> vm.printer
                         }
                         Text(preset, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -114,7 +150,7 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
                 trailingIcon = {
                     if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear search") }
                 },
-                placeholder = { Text("Search settings") },
+                placeholder = { Text("Search all ${type.name.lowercase()} settings") },
                 singleLine = true,
                 shape = CircleShape,
                 colors = TextFieldDefaults.colors(
@@ -134,23 +170,40 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
                     ) { Text(name) }
                 }
             }
-
-            val options = defs.byType[type].orEmpty().filter { d ->
-                d.mode <= mode && d.key !in HIDDEN_KEYS &&
-                    (query.isBlank() || d.fullLabel.contains(query, true) || d.key.contains(query, true) || d.category.contains(query, true))
-            }
-            val grouped = options.groupBy { it.category.ifEmpty { "Other" } }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
-                grouped.forEach { (category, list) ->
-                    item(key = "header-$category") {
-                        Text(
-                            category,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp),
+            if (!searching) {
+                // One chip per PrusaSlicer page; the badge counts the options changed on that page.
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(pages, key = { it }) { p ->
+                        val changed = sections.filter { it.page == p }.sumOf { s -> s.options.count { it.key in vm.overrides } }
+                        FilterChip(
+                            selected = p == page,
+                            onClick = { selectedPage = p },
+                            label = { Text(p) },
+                            trailingIcon = if (changed > 0) ({ Badge { Text("$changed") } }) else null,
                         )
                     }
-                    items(list, key = { it.key }) { def -> OptionRow(vm, def, onHelp = { help = def }) }
+                }
+            }
+            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
+                if (shown.isEmpty()) {
+                    item(key = "empty") {
+                        Text(
+                            "No settings match \"$query\".",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(24.dp),
+                        )
+                    }
+                }
+                shown.forEach { section ->
+                    stickyHeader(key = "header-${section.page}-${section.title}") {
+                        SectionHeader(if (searching) "${section.page} › ${section.title}" else section.title)
+                    }
+                    itemsIndexed(section.options, key = { _, def -> def.key }) { i, def ->
+                        OptionRow(vm, def, groupShape(i, section.options.size), onHelp = { help = def })
+                    }
                 }
             }
         }
@@ -166,6 +219,30 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
     }
 }
 
+private fun OptionDef.matches(query: String) = fullLabel.contains(query, true) || key.contains(query, true)
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(start = 32.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
+    )
+}
+
+/** Rows of one group form a single rounded block, with small gaps between the rows. */
+private fun groupShape(index: Int, count: Int): Shape {
+    val outer = 20.dp
+    val inner = 4.dp
+    val top = if (index == 0) outer else inner
+    val bottom = if (index == count - 1) outer else inner
+    return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
+}
+
 // Options that make no sense to edit on the phone, or that the app manages itself.
 private val HIDDEN_KEYS = setOf(
     "compatible_printers", "compatible_printers_condition", "compatible_prints", "compatible_prints_condition",
@@ -173,10 +250,12 @@ private val HIDDEN_KEYS = setOf(
     "printer_vendor", "post_process", "host_type", "print_host", "printhost_apikey", "printhost_cafile",
     "printhost_port", "printhost_authorization_type", "printhost_user", "printhost_password", "printhost_ssl_ignore_revoke",
     "physical_printer_settings_id", "printer_technology", "wipe_tower_x", "wipe_tower_y",
+    // Set per filament slot from the plate's filament chips.
+    "filament_colour",
 )
 
 @Composable
-private fun OptionRow(vm: SlicerViewModel, def: OptionDef, onHelp: () -> Unit) {
+private fun OptionRow(vm: SlicerViewModel, def: OptionDef, shape: Shape, onHelp: () -> Unit) {
     val value = vm.value(def.key) ?: ""
     val modified = def.key in vm.overrides
     ListItem(
@@ -197,7 +276,13 @@ private fun OptionRow(vm: SlicerViewModel, def: OptionDef, onHelp: () -> Unit) {
                 }
             }
         },
-        modifier = Modifier.clickable(onClick = onHelp),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 2.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .clickable(onClick = onHelp),
     )
 }
 

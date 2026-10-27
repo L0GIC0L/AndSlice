@@ -35,6 +35,8 @@ fun Viewport(vm: SlicerViewModel, camera: OrbitCamera, modifier: Modifier = Modi
                 vm.message = "G-code preview is unavailable on this device: $message"
             }
             override fun onPreviewInfo(json: String) = vm.onPreviewInfo(PreviewInfo.parse(json))
+            override fun wipeTower() = if (vm.wipeTowerVisible) vm.wipeTowerFootprint() else null
+            override fun onDragWipeTower(x: Float, y: Float, done: Boolean) = vm.dragWipeTower(x, y, done)
         })
     }
 
@@ -83,6 +85,15 @@ fun Viewport(vm: SlicerViewModel, camera: OrbitCamera, modifier: Modifier = Modi
             values[i * 4 + 3] = c.alpha
         }
         view.onGlThread { NativeEngine.rendererSetPalette(values) }
+    }
+
+    // On multi-material printers objects show the color of their filament slot.
+    LaunchedEffect(vm.slotColors, vm.multiMaterial) {
+        val colors = if (vm.multiMaterial) vm.slotColors.flatMap { hex ->
+            val c = parseHexColor(hex)
+            listOf(c.red, c.green, c.blue, 1f)
+        }.toFloatArray() else FloatArray(0)
+        view.onGlThread { NativeEngine.rendererSetExtruderColors(colors) }
     }
 
     LaunchedEffect(vm.mode) {

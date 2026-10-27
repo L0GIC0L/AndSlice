@@ -27,6 +27,18 @@ std::string to_string(JNIEnv* env, jstring s)
 
 jstring to_jstring(JNIEnv* env, const std::string& s) { return env->NewStringUTF(s.c_str()); }
 
+std::vector<std::string> to_strings(JNIEnv* env, jobjectArray array)
+{
+    std::vector<std::string> out;
+    const jsize n = array ? env->GetArrayLength(array) : 0;
+    for (jsize i = 0; i < n; ++i) {
+        auto s = static_cast<jstring>(env->GetObjectArrayElement(array, i));
+        out.push_back(to_string(env, s));
+        env->DeleteLocalRef(s);
+    }
+    return out;
+}
+
 void throw_java(JNIEnv* env, const char* message)
 {
     jclass cls = env->FindClass("java/lang/RuntimeException");
@@ -89,10 +101,10 @@ JNIEXPORT jstring JNICALL FN(presetsJson)(JNIEnv* env, jobject, jstring printer)
     return guarded(env, [&] { return to_jstring(env, Engine::get().presets_json(to_string(env, printer))); }, (jstring) nullptr);
 }
 
-JNIEXPORT jstring JNICALL FN(configJson)(JNIEnv* env, jobject, jstring printer, jstring print, jstring filament)
+JNIEXPORT jstring JNICALL FN(configJson)(JNIEnv* env, jobject, jstring printer, jstring print, jobjectArray filaments)
 {
     return guarded(env, [&] {
-        return to_jstring(env, Engine::get().config_json(to_string(env, printer), to_string(env, print), to_string(env, filament)));
+        return to_jstring(env, Engine::get().config_json(to_string(env, printer), to_string(env, print), to_strings(env, filaments)));
     }, (jstring) nullptr);
 }
 
@@ -190,16 +202,53 @@ JNIEXPORT void JNICALL FN(select)(JNIEnv* env, jobject, jlong id)
     guarded_void(env, [&] { Engine::get().select(int64_t(id)); });
 }
 
+JNIEXPORT void JNICALL FN(setExtruder)(JNIEnv* env, jobject, jlong id, jint part, jint extruder)
+{
+    guarded_void(env, [&] { Engine::get().set_extruder(uint64_t(id), part, extruder); });
+}
+
+// values = {x, y, width, depth, brim, height}
+JNIEXPORT void JNICALL FN(setWipeTower)(JNIEnv* env, jobject, jboolean visible, jfloatArray values)
+{
+    guarded_void(env, [&] {
+        if (env->GetArrayLength(values) < 6)
+            throw std::invalid_argument("wipe tower needs 6 values");
+        float v[6];
+        env->GetFloatArrayRegion(values, 0, 6, v);
+        andslice::WipeTowerShape shape;
+        shape.visible = visible;
+        shape.x = v[0];
+        shape.y = v[1];
+        shape.width = v[2];
+        shape.depth = v[3];
+        shape.brim = v[4];
+        shape.height = v[5];
+        Engine::get().set_wipe_tower(shape);
+    });
+}
+
+// {x, y} of the wipe tower, which arranging may have moved.
+JNIEXPORT jfloatArray JNICALL FN(wipeTowerPosition)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] {
+        const andslice::WipeTowerShape shape = Engine::get().wipe_tower();
+        const float v[2] = { shape.x, shape.y };
+        jfloatArray out = env->NewFloatArray(2);
+        env->SetFloatArrayRegion(out, 0, 2, v);
+        return out;
+    }, (jfloatArray) nullptr);
+}
+
 // ------------------------------------------------------------------- slicing
 
-JNIEXPORT jstring JNICALL FN(slice)(JNIEnv* env, jobject, jstring printer, jstring print, jstring filament,
+JNIEXPORT jstring JNICALL FN(slice)(JNIEnv* env, jobject, jstring printer, jstring print, jobjectArray filaments,
                                    jobjectArray keys, jobjectArray values, jstring output, jobject listener)
 {
     return guarded(env, [&] {
         andslice::SliceRequest req;
         req.printer     = to_string(env, printer);
         req.print       = to_string(env, print);
-        req.filament    = to_string(env, filament);
+        req.filaments   = to_strings(env, filaments);
         req.output_path = to_string(env, output);
         const jsize n = env->GetArrayLength(keys);
         for (jsize i = 0; i < n; ++i) {
@@ -273,6 +322,17 @@ JNIEXPORT void JNICALL FN(rendererSetPalette)(JNIEnv* env, jobject, jfloatArray 
         float values[n];
         env->GetFloatArrayRegion(colors, 0, n, values);
         SceneRenderer::get().set_palette(values);
+    });
+}
+
+// RGBA per extruder; an empty array draws objects in the theme color instead.
+JNIEXPORT void JNICALL FN(rendererSetExtruderColors)(JNIEnv* env, jobject, jfloatArray colors)
+{
+    guarded_void(env, [&] {
+        std::vector<float> values(size_t(env->GetArrayLength(colors)));
+        if (!values.empty())
+            env->GetFloatArrayRegion(colors, 0, jsize(values.size()), values.data());
+        SceneRenderer::get().set_extruder_colors(values);
     });
 }
 

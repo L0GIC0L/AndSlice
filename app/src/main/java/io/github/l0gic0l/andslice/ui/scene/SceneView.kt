@@ -25,6 +25,10 @@ interface SceneCallbacks {
     fun objectOffset(id: Long): Pair<Double, Double>?
     fun onRendererError(message: String)
     fun onPreviewInfo(json: String)
+    /** Wipe tower box {x, y, width, depth, height} when one is shown, or null. */
+    fun wipeTower(): FloatArray?
+    /** The wipe tower was dragged to (x, y); [done] is true when the finger lifts. */
+    fun onDragWipeTower(x: Float, y: Float, done: Boolean)
 }
 
 /**
@@ -95,6 +99,7 @@ class SceneView(
     // ------------------------------------------------------------------ touch
 
     private var draggingId = -1L
+    private var draggingTower = false
     private var dragStart: FloatArray? = null
     private var dragOffset: Pair<Double, Double>? = null
     private var dragMoved = false
@@ -153,7 +158,7 @@ class SceneView(
                     lastFocusY = fy
                     publishCamera()
                 } else if (!multiTouch) {
-                    if (draggingId >= 0) {
+                    if (draggingId >= 0 || draggingTower) {
                         moveObjectDrag(event.x, event.y, done = false)
                     } else {
                         camera.orbit(event.x - lastX, event.y - lastY)
@@ -170,7 +175,7 @@ class SceneView(
                 lastY = event.getY(remaining)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (draggingId >= 0) moveObjectDrag(event.x, event.y, done = true)
+                if (draggingId >= 0 || draggingTower) moveObjectDrag(event.x, event.y, done = true)
                 finishObjectDrag()
             }
         }
@@ -180,16 +185,25 @@ class SceneView(
     private fun focusX(e: MotionEvent) = (0 until e.pointerCount).map { e.getX(it) }.average().toFloat()
     private fun focusY(e: MotionEvent) = (0 until e.pointerCount).map { e.getY(it) }.average().toFloat()
 
+    /** Starts dragging the selected object, or the wipe tower when the touch lands on it. */
     private fun startObjectDrag(x: Float, y: Float) {
         val selected = callbacks.selectedId()
-        if (selected < 0 || mode != 0) return
+        if (mode != 0 || (selected < 0 && callbacks.wipeTower() == null)) return
         val (o, d) = camera.ray(x, y, width, height)
-        if (NativeEngine.pick(o, d) != selected) return
-        draggingId = selected
-        dragStart = camera.hitPlane(x, y, width, height)
-        dragOffset = callbacks.objectOffset(selected)
+        val picked = NativeEngine.pick(o, d)
         dragMoved = false
-        if (dragStart == null || dragOffset == null) draggingId = -1
+        dragStart = camera.hitPlane(x, y, width, height)
+        if (selected >= 0 && picked == selected) {
+            draggingId = selected
+            dragOffset = callbacks.objectOffset(selected)
+        } else if (picked < 0) {
+            val tower = callbacks.wipeTower()
+            if (tower != null && rayHitsBox(o, d, tower)) {
+                draggingTower = true
+                dragOffset = tower[0].toDouble() to tower[1].toDouble()
+            }
+        }
+        if (dragStart == null || dragOffset == null) finishObjectDrag()
     }
 
     private fun moveObjectDrag(x: Float, y: Float, done: Boolean) {
@@ -198,14 +212,38 @@ class SceneView(
         val now = camera.hitPlane(x, y, width, height) ?: return
         if (!done) dragMoved = true
         if (done && !dragMoved) return
-        callbacks.onDragObject(draggingId, offset.first + (now[0] - start[0]), offset.second + (now[1] - start[1]), done)
+        val nx = offset.first + (now[0] - start[0])
+        val ny = offset.second + (now[1] - start[1])
+        if (draggingTower) callbacks.onDragWipeTower(nx.toFloat(), ny.toFloat(), done)
+        else callbacks.onDragObject(draggingId, nx, ny, done)
         requestRender()
     }
 
     private fun finishObjectDrag() {
         draggingId = -1
+        draggingTower = false
         dragStart = null
         dragOffset = null
+    }
+
+    /** Slab test of the ray against the box {x, y, width, depth, height} standing on the bed. */
+    private fun rayHitsBox(o: FloatArray, d: FloatArray, box: FloatArray): Boolean {
+        val min = floatArrayOf(box[0], box[1], 0f)
+        val max = floatArrayOf(box[0] + box[2], box[1] + box[3], maxOf(box[4], 1f))
+        var near = 0f
+        var far = Float.MAX_VALUE
+        for (i in 0..2) {
+            if (kotlin.math.abs(d[i]) < 1e-9f) {
+                if (o[i] < min[i] || o[i] > max[i]) return false
+                continue
+            }
+            val a = (min[i] - o[i]) / d[i]
+            val b = (max[i] - o[i]) / d[i]
+            near = maxOf(near, minOf(a, b))
+            far = minOf(far, maxOf(a, b))
+            if (near > far) return false
+        }
+        return true
     }
 }
 

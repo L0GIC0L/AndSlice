@@ -19,7 +19,8 @@ object NativeEngine {
 
     // Profiles
     external fun presetsJson(printer: String): String
-    external fun configJson(printer: String, print: String, filament: String): String
+    /** [filaments] holds the filament preset of each extruder (ACE slot). */
+    external fun configJson(printer: String, print: String, filaments: Array<String>): String
     external fun optionDefsJson(): String
     external fun setPrinter(printer: String)
 
@@ -38,12 +39,18 @@ object NativeEngine {
     external fun centerObject(id: Long)
     external fun objectsJson(): String
     external fun select(id: Long)
+    /** Gives a whole object (part < 0) or one of its model parts the 1-based [extruder]. */
+    external fun setExtruder(id: Long, part: Int, extruder: Int)
+    /** values = {x, y, width, depth, brim, height} of the wipe tower in mm. */
+    external fun setWipeTower(visible: Boolean, values: FloatArray)
+    /** Wipe tower {x, y}; arranging may move it. */
+    external fun wipeTowerPosition(): FloatArray
 
     // Slicing
     external fun slice(
         printer: String,
         print: String,
-        filament: String,
+        filaments: Array<String>,
         keys: Array<String>,
         values: Array<String>,
         outputPath: String,
@@ -58,6 +65,8 @@ object NativeEngine {
     external fun rendererDraw(view: FloatArray, projection: FloatArray, mode: Int)
     /** 7 RGBA colors: background, bed, grid, bed edges, object, selected object, object outside the bed. */
     external fun rendererSetPalette(colors: FloatArray)
+    /** RGBA per extruder; an empty array draws objects in the theme color. */
+    external fun rendererSetExtruderColors(colors: FloatArray)
     external fun previewSetLayerRange(first: Int, last: Int)
     external fun previewSetMoveFraction(fraction: Float)
     external fun previewSetViewType(type: Int)

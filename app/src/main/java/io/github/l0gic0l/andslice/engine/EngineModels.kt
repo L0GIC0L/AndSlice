@@ -11,6 +11,8 @@ data class PresetLists(
     val filaments: List<String>,
     val defaultPrint: String,
     val defaultFilament: String,
+    /** Extruders of the printer; the Kobra 3 Combo has one per ACE slot. */
+    val extruders: Int,
 ) {
     companion object {
         fun parse(json: String): PresetLists {
@@ -22,10 +24,14 @@ data class PresetLists(
                 filaments = o.getJSONArray("filaments").strings(),
                 defaultPrint = o.optString("default_print"),
                 defaultFilament = o.optString("default_filament"),
+                extruders = o.optInt("extruders", 1).coerceAtLeast(1),
             )
         }
     }
 }
+
+/** A model part of an object and its 1-based extruder (filament slot). */
+data class ObjectPart(val name: String, val extruder: Int)
 
 data class PlateObject(
     val id: Long,
@@ -36,7 +42,15 @@ data class PlateObject(
     val size: List<Double>,
     val triangles: Int,
     val outside: Boolean,
+    /** 1-based extruder of the object; parts may use their own. */
+    val extruder: Int = 1,
+    val parts: List<ObjectPart> = emptyList(),
+    /** Has multi-material painting (from a 3MF project), which picks its own filaments. */
+    val painted: Boolean = false,
 ) {
+    /** Extruders that print this object. */
+    val extruders: Set<Int> get() = parts.map { it.extruder }.toSet().ifEmpty { setOf(extruder) }
+
     /** Transform in the layout NativeEngine.setTransform expects. */
     fun transform(
         x: Double = offset[0], y: Double = offset[1],
@@ -58,6 +72,14 @@ data class PlateObject(
                     size = o.getJSONArray("size").doubles(),
                     triangles = o.optInt("triangles"),
                     outside = o.optBoolean("outside"),
+                    extruder = o.optInt("extruder", 1),
+                    parts = o.optJSONArray("parts")?.let { p ->
+                        (0 until p.length()).map { j ->
+                            val part = p.getJSONObject(j)
+                            ObjectPart(part.optString("name"), part.optInt("extruder", 1))
+                        }
+                    } ?: emptyList(),
+                    painted = o.optBoolean("painted"),
                 )
             }
         }
@@ -76,6 +98,10 @@ data class SliceResult(
     val cost: Double,
     val layerZs: List<Double>,
     val warnings: List<String>,
+    /** 1-based extruders (filament slots) the G-code uses. */
+    val extrudersUsed: List<Int> = emptyList(),
+    /** Depth of the printed wipe tower in mm, or 0 when there is none. */
+    val wipeTowerDepth: Double = 0.0,
 ) {
     companion object {
         fun parse(json: String): SliceResult {
@@ -92,6 +118,8 @@ data class SliceResult(
                 cost = o.optDouble("cost", 0.0),
                 layerZs = o.optJSONArray("layers")?.doubles() ?: emptyList(),
                 warnings = o.optJSONArray("warnings")?.strings() ?: emptyList(),
+                extrudersUsed = o.optJSONArray("extruders_used")?.let { a -> (0 until a.length()).map { a.getInt(it) } } ?: emptyList(),
+                wipeTowerDepth = o.optJSONObject("wipe_tower")?.optDouble("depth", 0.0) ?: 0.0,
             )
         }
     }
@@ -176,6 +204,8 @@ data class PreviewInfo(
     val roles: List<RoleInfo>,
     /** Legend for gradient view types: value and color. */
     val range: List<Pair<Double, Long>>,
+    /** 0-based tools (filament slots) of the print and their colors. */
+    val tools: List<Pair<Int, Long>> = emptyList(),
 ) {
     companion object {
         val EMPTY = PreviewInfo(false, 0, 0.0, 0, emptyList(), emptyList())
@@ -194,7 +224,14 @@ data class PreviewInfo(
                     r.getDouble("value") to parseColor(r.getString("color"))
                 }
             } ?: emptyList()
+            val tools = o.optJSONArray("tools")?.let { a ->
+                (0 until a.length()).map { i ->
+                    val t = a.getJSONObject(i)
+                    t.getInt("id") to parseColor(t.getString("color"))
+                }
+            } ?: emptyList()
             return PreviewInfo(
+                tools = tools,
                 loaded = o.optBoolean("loaded"),
                 layers = o.optInt("layers"),
                 timeSeconds = o.optDouble("time", 0.0),
@@ -219,7 +256,11 @@ val EXTRUSION_ROLE_NAMES = listOf(
 val PREVIEW_VIEW_TYPES = listOf(
     0 to "Feature type", 1 to "Height", 2 to "Width", 3 to "Speed", 4 to "Actual speed",
     5 to "Fan speed", 6 to "Temperature", 7 to "Volumetric flow rate", 9 to "Layer time",
+    11 to "Filament",
 )
+
+/** libvgcode's EViewType for the per-tool (filament slot) view. */
+const val VIEW_TYPE_TOOL = 11
 
 /** libvgcode EOptionType ids used by the preview toggles. */
 object PreviewOption {

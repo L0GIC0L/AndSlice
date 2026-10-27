@@ -111,6 +111,7 @@ std::string SceneRenderer::on_surface_created()
     // A new EGL context means every previous GL object is gone.
     m_meshes.clear();
     m_bed_vao = m_bed_vbo = 0;
+    m_cube_vao = m_cube_vbo = m_cube_ibo = 0;
     m_plate_revision = 0;
     m_preview_revision = 0;
     m_preview.release();
@@ -197,6 +198,7 @@ void SceneRenderer::sync_plate()
         return;
     m_plate_revision = rev;
     m_plate = engine.plate_snapshot();
+    m_wipe_tower = engine.wipe_tower();
     sync_bed();
 
     // Drop meshes of removed objects, upload new ones.
@@ -269,6 +271,24 @@ void SceneRenderer::draw_bed(const float viewproj[16])
     glBindVertexArray(0);
 }
 
+void SceneRenderer::object_color(const PlateObject& o, int extruder, bool dimmed, float out[4]) const
+{
+    const float* base = m_palette[Object];
+    if (!m_extruder_colors.empty())
+        base = m_extruder_colors[size_t(std::max(extruder - 1, 0)) % m_extruder_colors.size()].data();
+    std::copy(base, base + 4, out);
+    if (dimmed) {
+        out[3] = 0.12f;
+    } else if (o.outside) {
+        std::copy(m_palette[Outside], m_palette[Outside] + 4, out);
+    } else if (o.selected) {
+        // Filament colors stay recognizable when selected; theme colors switch to the selection color.
+        const float mix = m_extruder_colors.empty() ? 1.f : 0.45f;
+        for (int c = 0; c < 3; ++c)
+            out[c] = out[c] * (1.f - mix) + m_palette[Selected][c] * mix;
+    }
+}
+
 void SceneRenderer::draw_objects(const float viewproj[16], bool dimmed)
 {
     glUseProgram(m_mesh_program);
@@ -285,16 +305,16 @@ void SceneRenderer::draw_objects(const float viewproj[16], bool dimmed)
         if (it == m_meshes.end() || it->second.index_count == 0)
             continue;
         glUniformMatrix4fv(model, 1, GL_FALSE, o.transform.data());
-        if (dimmed)
-            glUniform4f(color, m_palette[Object][0], m_palette[Object][1], m_palette[Object][2], 0.12f);
-        else if (o.outside)
-            glUniform4fv(color, 1, m_palette[Outside]);
-        else if (o.selected)
-            glUniform4fv(color, 1, m_palette[Selected]);
-        else
-            glUniform4fv(color, 1, m_palette[Object]);
         glBindVertexArray(it->second.vao);
-        glDrawElements(GL_TRIANGLES, it->second.index_count, GL_UNSIGNED_INT, nullptr);
+        // One draw per model part, so each part shows the color of its filament.
+        const auto& parts = o.mesh->parts;
+        for (size_t i = 0; i < parts.size(); ++i) {
+            float c[4];
+            object_color(o, i < o.part_extruders.size() ? o.part_extruders[i] : 1, dimmed, c);
+            glUniform4fv(color, 1, c);
+            glDrawElements(GL_TRIANGLES, GLsizei(parts[i][1]), GL_UNSIGNED_INT,
+                           reinterpret_cast<const void*>(uintptr_t(parts[i][0]) * sizeof(uint32_t)));
+        }
     }
     glBindVertexArray(0);
     if (dimmed) {
@@ -303,11 +323,57 @@ void SceneRenderer::draw_objects(const float viewproj[16], bool dimmed)
     }
 }
 
+void SceneRenderer::draw_wipe_tower(const float viewproj[16], bool dimmed)
+{
+    if (!m_wipe_tower.visible)
+        return;
+    if (m_cube_vao == 0) {
+        // Unit cube, scaled and moved to the tower's footprint with the model matrix.
+        const float v[] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1 };
+        const uint32_t idx[] = { 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+                                 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7 };
+        glGenVertexArrays(1, &m_cube_vao);
+        glGenBuffers(1, &m_cube_vbo);
+        glGenBuffers(1, &m_cube_ibo);
+        glBindVertexArray(m_cube_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_cube_vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(v), v, GL_STATIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cube_ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(idx), idx, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+        glBindVertexArray(0);
+    }
+    const WipeTowerShape& t = m_wipe_tower;
+    const float h = std::max(t.height, 1.f);
+    const float model[16] = { t.width, 0, 0, 0,  0, t.depth, 0, 0,  0, 0, h, 0,  t.x, t.y, 0, 1 };
+    glUseProgram(m_mesh_program);
+    glUniformMatrix4fv(glGetUniformLocation(m_mesh_program, "u_viewproj"), 1, GL_FALSE, viewproj);
+    glUniformMatrix4fv(glGetUniformLocation(m_mesh_program, "u_model"), 1, GL_FALSE, model);
+    const float* edge = m_palette[Edges];
+    glUniform4f(glGetUniformLocation(m_mesh_program, "u_color"), edge[0], edge[1], edge[2], dimmed ? 0.12f : 0.55f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glBindVertexArray(m_cube_vao);
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
 void SceneRenderer::set_palette(const float colors[PaletteSize * 4])
 {
     for (int i = 0; i < PaletteSize; ++i)
         for (int c = 0; c < 4; ++c)
             m_palette[i][c] = colors[i * 4 + c];
+}
+
+void SceneRenderer::set_extruder_colors(const std::vector<float>& rgba)
+{
+    m_extruder_colors.clear();
+    for (size_t i = 0; i + 3 < rgba.size(); i += 4)
+        m_extruder_colors.push_back({ rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3] });
 }
 
 void SceneRenderer::draw(const float view[16], const float projection[16], int mode)
@@ -336,6 +402,7 @@ void SceneRenderer::draw(const float view[16], const float projection[16], int m
         draw_objects(viewproj, true);
     } else {
         draw_objects(viewproj, false);
+        draw_wipe_tower(viewproj, false);
     }
 }
 

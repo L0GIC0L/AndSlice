@@ -1,9 +1,12 @@
 // Host test harness for the AndSlice engine. It drives the exact code the
 // Android app uses, so slicing can be verified on a desktop or in CI:
 //
-//   andslice_cli --bundle Kobra3.ini [--printer P] [--print P] [--filament F]
-//                [--set key=value]... -o out.gcode model.stl [model2.stl ...]
+//   andslice_cli --bundle Kobra3.ini [--printer P] [--print P] [--filament F]...
+//                [--extruder OBJECT=N]... [--set key=value]... -o out.gcode model.stl [model2.stl ...]
 //   andslice_cli --bundle Kobra3.ini --list [--printer P]
+//
+// --filament can be repeated, once per extruder (ACE slot). --extruder assigns
+// the 1-based extruder N to the object with the 0-based index OBJECT.
 #include <cstdio>
 #include <cstring>
 #include <iostream>
@@ -20,15 +23,17 @@ using nlohmann::json;
 
 static int usage()
 {
-    std::cerr << "usage: andslice_cli --bundle FILE [--printer NAME] [--print NAME] [--filament NAME]\n"
-                 "                    [--set KEY=VALUE]... (--list | -o OUT.gcode MODEL...)\n";
+    std::cerr << "usage: andslice_cli --bundle FILE [--printer NAME] [--print NAME] [--filament NAME]...\n"
+                 "                    [--extruder OBJECT=N]... [--set KEY=VALUE]... (--list | -o OUT.gcode MODEL...)\n";
     return 2;
 }
 
 int main(int argc, char** argv)
 {
-    std::string bundle, printer, print, filament, output;
+    std::string bundle, printer, print, output;
+    std::vector<std::string> filaments;
     std::vector<std::pair<std::string, std::string>> overrides;
+    std::vector<std::pair<int, int>> extruders;
     std::vector<std::string> models;
     bool list = false;
 
@@ -38,7 +43,14 @@ int main(int argc, char** argv)
         if (a == "--bundle")        bundle = next();
         else if (a == "--printer")  printer = next();
         else if (a == "--print")    print = next();
-        else if (a == "--filament") filament = next();
+        else if (a == "--filament") filaments.push_back(next());
+        else if (a == "--extruder") {
+            const std::string kv = next();
+            const size_t eq = kv.find('=');
+            if (eq == std::string::npos)
+                return usage();
+            extruders.emplace_back(std::stoi(kv.substr(0, eq)), std::stoi(kv.substr(eq + 1)));
+        }
         else if (a == "-o")         output = next();
         else if (a == "--list")     list = true;
         else if (a == "--set") {
@@ -63,7 +75,7 @@ int main(int argc, char** argv)
         const json presets = json::parse(engine.presets_json(printer));
         if (printer.empty())  printer  = presets["printer"];
         if (print.empty())    print    = presets["default_print"];
-        if (filament.empty()) filament = presets["default_filament"];
+        if (filaments.empty()) filaments.push_back(presets["default_filament"]);
 
         if (list) {
             std::cout << presets.dump(2) << "\n";
@@ -78,11 +90,26 @@ int main(int argc, char** argv)
         for (const auto& [key, value] : overrides)
             if (key == "brim_width")
                 engine.set_arrange_distance(6.f + 2.f * std::stof(value));
+        // Multi-material printers get a prime tower in the back right corner, as in the app.
+        if (presets["extruders"].get<int>() > 1) {
+            andslice::WipeTowerShape tower;
+            tower.visible = true;
+            tower.x = 190.f;
+            tower.y = 215.f;
+            tower.width = 45.f;
+            tower.depth = 20.f;
+            tower.brim = 5.f;
+            engine.set_wipe_tower(tower);
+        }
         for (const std::string& m : models)
             std::cout << "loaded " << m << ": " << engine.add_model(m, "") << "\n";
+        const json objects = json::parse(engine.objects_json());
+        for (const auto& [index, extruder] : extruders)
+            if (index >= 0 && index < int(objects.size()))
+                engine.set_extruder(objects[index]["id"].get<uint64_t>(), -1, extruder);
         std::cout << "plate: " << engine.objects_json() << "\n";
 
-        andslice::SliceRequest req{ printer, print, filament, overrides, output };
+        andslice::SliceRequest req{ printer, print, filaments, overrides, output };
         const std::string result = engine.slice(req, [](int percent, const std::string& msg) {
             std::cout << percent << "% " << msg << "\n";
         });

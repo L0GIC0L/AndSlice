@@ -70,6 +70,7 @@ import io.github.l0gic0l.andslice.PrinterViewModel
 import io.github.l0gic0l.andslice.SlicerViewModel
 import io.github.l0gic0l.andslice.engine.EXTRUSION_ROLE_NAMES
 import io.github.l0gic0l.andslice.engine.PREVIEW_VIEW_TYPES
+import io.github.l0gic0l.andslice.engine.VIEW_TYPE_TOOL
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -199,6 +200,11 @@ private fun Legend(vm: SlicerViewModel) {
                 info.roles.filter { it.used }.forEach { role ->
                     LegendRow(Color(role.color), EXTRUSION_ROLE_NAMES.getOrElse(role.id) { "?" }, formatDuration(role.timeSeconds))
                 }
+            } else if (vm.viewType == VIEW_TYPE_TOOL) {
+                info.tools.forEach { (id, color) ->
+                    val name = shortFilamentName(vm.filaments.getOrElse(id) { "" })
+                    LegendRow(Color(color), if (vm.multiMaterial) "${id + 1} · $name" else name, "")
+                }
             } else {
                 info.range.asReversed().forEach { (value, color) ->
                     LegendRow(Color(color), String.format(Locale.US, "%.2f", value), "")
@@ -303,7 +309,7 @@ private fun Stat(icon: ImageVector, label: String, value: String) {
 private fun SendToPrinterSheet(printer: PrinterViewModel, file: File, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.navigationBarsPadding().padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
-            Text("Send to OctoPrint", style = MaterialTheme.typography.titleLarge)
+            Text("Send to printer", style = MaterialTheme.typography.titleLarge)
             ListItem(
                 headlineContent = { Text(file.name) },
                 supportingContent = { Text(printer.url) },

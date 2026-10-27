@@ -47,6 +47,9 @@ void PreviewRenderer::load(const GCodeInputData& data)
     set_option_visible(int(EOptionType::Travels), m_travels);
     m_viewer->load(std::move(copy));
     m_loaded = !data.vertices.empty();
+    // Like PrusaSlicer's default: the moves slider scrubs through the top visible layer only.
+    if (m_loaded)
+        set_top_layer_only(true);
     set_layer_range(m_first_layer, m_last_layer);
     update_info();
 }
@@ -154,6 +157,13 @@ void PreviewRenderer::update_info()
     if (m_loaded) {
         info["layers"] = m_viewer->get_layers_count();
         info["time"]   = m_viewer->get_estimated_time();
+        // Filaments (tools) the print uses, with their colors, for the Filament view legend.
+        json tools = json::array();
+        const Palette& tool_colors = m_viewer->get_tool_colors();
+        for (uint8_t id : m_viewer->get_used_extruders_ids())
+            if (id < tool_colors.size())
+                tools.push_back({ {"id", int(id)}, {"color", color_hex(tool_colors[id])} });
+        info["tools"] = tools;
         const EViewType vt = m_viewer->get_view_type();
         if (vt != EViewType::FeatureType && vt != EViewType::Tool && vt != EViewType::ColorPrint) {
             const ColorRange& range = m_viewer->get_color_range(vt);

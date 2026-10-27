@@ -26,15 +26,18 @@ class AppLaunchTest {
         waitForText("The plate is empty", timeoutMillis = 30_000)
         compose.onNodeWithText("Import model").assertExists()
 
-        // Settings list PrusaSlicer's own option definitions.
+        // Settings show PrusaSlicer's options on its own pages, and search across all of them.
         compose.onNodeWithContentDescription("Settings").performClick()
+        waitForText("Layer height")
+        compose.onNodeWithText("Infill").performClick()
+        waitForText("Fill density")
         compose.onNodeWithTag("settings-search").performTextInput("fill_density")
         waitForText("Fill density")
         compose.onNodeWithContentDescription("Back").performClick()
 
-        // The printer screen asks for an OctoPrint connection.
+        // The printer screen asks for an OctoPrint or Moonraker connection.
         waitForText("The plate is empty")
         compose.onNodeWithContentDescription("Printer").performClick()
-        waitForText("Connect to OctoPrint")
+        waitForText("Connect your printer")
     }
 }

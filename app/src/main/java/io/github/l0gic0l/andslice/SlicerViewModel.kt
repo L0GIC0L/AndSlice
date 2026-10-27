@@ -5,7 +5,9 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
@@ -18,10 +20,12 @@ import io.github.l0gic0l.andslice.engine.PresetLists
 import io.github.l0gic0l.andslice.engine.PresetType
 import io.github.l0gic0l.andslice.engine.PreviewInfo
 import io.github.l0gic0l.andslice.engine.SliceResult
+import io.github.l0gic0l.andslice.engine.VIEW_TYPE_TOOL
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
@@ -40,7 +44,13 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     var presets by mutableStateOf<PresetLists?>(null); private set
     var printer by mutableStateOf(""); private set
     var print by mutableStateOf(""); private set
-    var filament by mutableStateOf(""); private set
+    /** Filament preset of each extruder; the Kobra 3 Combo has one per ACE slot. */
+    var filaments by mutableStateOf<List<String>>(emptyList()); private set
+    /** Color of each filament slot, as #RRGGBB. */
+    var slotColors by mutableStateOf<List<String>>(emptyList()); private set
+    /** Wipe tower position (front left corner) on the bed, in mm. */
+    var wipeTowerX by mutableFloatStateOf(0f); private set
+    var wipeTowerY by mutableFloatStateOf(0f); private set
     /** Values of the selected presets, before overrides. */
     var config by mutableStateOf<Map<String, String>>(emptyMap()); private set
     /** User changes on top of the presets (key -> PrusaSlicer serialized value). */
@@ -48,7 +58,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     var optionDefs by mutableStateOf<OptionDefs?>(null); private set
 
     var objects by mutableStateOf<List<PlateObject>>(emptyList()); private set
-    var selectedId by mutableStateOf(-1L); private set
+    var selectedId by mutableLongStateOf(-1L); private set
     var busyMessage by mutableStateOf<String?>(null); private set
 
     var slicing by mutableStateOf(false); private set
@@ -61,7 +71,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     var mode by mutableStateOf(ViewMode.Plate); private set
     var previewInfo by mutableStateOf(PreviewInfo.EMPTY); private set
     var layerRange by mutableStateOf(0..0); private set
-    var moveFraction by mutableStateOf(1f); private set
+    var moveFraction by mutableFloatStateOf(1f); private set
     var viewType by mutableIntStateOf(0); private set
     var showTravel by mutableStateOf(false); private set
     var layFaceMode by mutableStateOf(false); private set
@@ -72,6 +82,10 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     var message by mutableStateOf<String?>(null)
 
     val selectedObject: PlateObject? get() = objects.firstOrNull { it.id == selectedId }
+    /** Filament of the first slot, which single-extruder printers use. */
+    val filament: String get() = filaments.firstOrNull() ?: ""
+    val extruderCount: Int get() = presets?.extruders ?: 1
+    val multiMaterial: Boolean get() = extruderCount > 1
 
     init {
         viewModelScope.launch {
@@ -106,33 +120,57 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         }
         val p = lists.printer
         val pr = prefs.getString(KEY_PRINT, "")?.takeIf { it in lists.prints } ?: lists.defaultPrint.ifEmpty { lists.prints.first() }
-        val fi = prefs.getString(KEY_FILAMENT, "")?.takeIf { it in lists.filaments } ?: lists.defaultFilament.ifEmpty { lists.filaments.first() }
+        val savedFilaments = prefs.getString(KEY_FILAMENTS, null)?.let { JSONArray(it).strings() }
+            ?: listOfNotNull(prefs.getString(KEY_FILAMENT, null))
+        val fi = fitSlots(savedFilaments.filter { it in lists.filaments }, lists.extruders,
+                          lists.defaultFilament.ifEmpty { lists.filaments.first() })
+        val savedColors = prefs.getString(KEY_COLORS, null)?.let { JSONArray(it).strings() } ?: emptyList()
         NativeEngine.setPrinter(p)
         val cfg = loadConfig(p, pr, fi)
+        val colors = slotColorsFor(lists.extruders, savedColors, cfg)
 
         viewModelScope.launch {
             optionDefs = defs
             presets = lists
             printer = p
             print = pr
-            filament = fi
+            filaments = fi
+            slotColors = colors
             config = cfg
             overrides = restored
+            resetWipeTowerPosition()
             updateArrangeDistance()
+            syncSlots()
             redraw()
         }
     }
 
-    private fun loadConfig(printer: String, print: String, filament: String): Map<String, String> {
-        val o = JSONObject(NativeEngine.configJson(printer, print, filament))
+    private fun loadConfig(printer: String, print: String, filaments: List<String>): Map<String, String> {
+        val o = JSONObject(NativeEngine.configJson(printer, print, filaments.toTypedArray()))
         return o.keys().asSequence().associateWith { o.getString(it) }
+    }
+
+    /** One filament per extruder: keeps the chosen ones and repeats the last for new slots. */
+    private fun fitSlots(chosen: List<String>, count: Int, fallback: String): List<String> =
+        List(count) { i -> chosen.getOrNull(i) ?: chosen.lastOrNull() ?: fallback }
+
+    /**
+     * Slot colors: the saved ones, then distinct defaults for multi-material printers, or the
+     * filament preset's color for a single extruder.
+     */
+    private fun slotColorsFor(count: Int, saved: List<String>, cfg: Map<String, String>): List<String> {
+        val presetColor = cfg["filament_colour"]?.split(';')?.firstOrNull()?.trim('"')?.takeIf { it.startsWith("#") }
+        return List(count) { i ->
+            saved.getOrNull(i) ?: if (count == 1) presetColor ?: DEFAULT_SLOT_COLORS[0] else DEFAULT_SLOT_COLORS[i % DEFAULT_SLOT_COLORS.size]
+        }
     }
 
     private fun savePresetSelection() {
         prefs.edit {
             putString(KEY_PRINTER, printer)
             putString(KEY_PRINT, print)
-            putString(KEY_FILAMENT, filament)
+            putString(KEY_FILAMENTS, JSONArray(filaments).toString())
+            putString(KEY_COLORS, JSONArray(slotColors).toString())
             putString(KEY_OVERRIDES, JSONObject(overrides).toString())
         }
     }
@@ -147,29 +185,44 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         val lists = PresetLists.parse(NativeEngine.presetsJson(name))
         NativeEngine.setPrinter(name)
         val newPrint = print.takeIf { it in lists.prints } ?: lists.defaultPrint.ifEmpty { lists.prints.first() }
-        val newFilament = filament.takeIf { it in lists.filaments } ?: lists.defaultFilament.ifEmpty { lists.filaments.first() }
-        val cfg = loadConfig(name, newPrint, newFilament)
+        val newFilaments = fitSlots(filaments.filter { it in lists.filaments }, lists.extruders,
+                                    lists.defaultFilament.ifEmpty { lists.filaments.first() })
+        val cfg = loadConfig(name, newPrint, newFilaments)
+        val colors = slotColorsFor(lists.extruders, if (lists.extruders == extruderCount) slotColors else emptyList(), cfg)
         val objs = PlateObject.parseList(NativeEngine.objectsJson())
         withContext(Dispatchers.Main) {
+            val bedChanged = config["bed_shape"] != cfg["bed_shape"]
             presets = lists
             printer = name
             print = newPrint
-            filament = newFilament
+            filaments = newFilaments
+            slotColors = colors
             config = cfg
             objects = objs
+            if (bedChanged) resetWipeTowerPosition()
             dropOverrides(PresetType.Printer)
             settingsChanged()
         }
     }
 
     fun selectPrint(name: String) = changePresets(print = name, reset = PresetType.Print)
-    fun selectFilament(name: String) = changePresets(filament = name, reset = PresetType.Filament)
 
-    private fun changePresets(print: String = this.print, filament: String = this.filament, reset: PresetType) = launchEngine {
-        val cfg = loadConfig(printer, print, filament)
+    /** Picks the filament preset of one slot (0-based). */
+    fun selectFilament(slot: Int, name: String) =
+        changePresets(filaments = filaments.toMutableList().also { if (slot in it.indices) it[slot] = name }, reset = PresetType.Filament)
+
+    fun setSlotColor(slot: Int, color: String) {
+        if (slot !in slotColors.indices) return
+        slotColors = slotColors.toMutableList().also { it[slot] = color }
+        settingsChanged()
+        syncSlots()
+    }
+
+    private fun changePresets(print: String = this.print, filaments: List<String> = this.filaments, reset: PresetType) = launchEngine {
+        val cfg = loadConfig(printer, print, filaments)
         withContext(Dispatchers.Main) {
             this@SlicerViewModel.print = print
-            this@SlicerViewModel.filament = filament
+            this@SlicerViewModel.filaments = filaments
             config = cfg
             dropOverrides(reset)
             settingsChanged()
@@ -209,7 +262,72 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     private fun settingsChanged() {
         savePresetSelection()
         updateArrangeDistance()
+        syncSlots()
         if (result != null) resultStale = true
+    }
+
+    // ------------------------------------------------------------------ filament slots
+
+    /** Extruders the plate uses; painted objects may use any of them. */
+    val usedExtruders: Set<Int>
+        get() = if (objects.any { it.painted }) (1..extruderCount).toSet()
+                else objects.flatMap { it.extruders }.map { it.coerceIn(1, extruderCount) }.toSet()
+
+    /** PrusaSlicer prints a wipe tower when it is enabled and the plate uses more than one filament. */
+    val wipeTowerVisible: Boolean
+        get() = multiMaterial && value("wipe_tower") == "1" && usedExtruders.size > 1
+
+    /** Wipe tower {x, y, width, depth, brim, height} in mm. */
+    private fun wipeTowerShape(): FloatArray {
+        val width = value("wipe_tower_width")?.toFloatOrNull() ?: 60f
+        val brim = value("wipe_tower_brim_width")?.toFloatOrNull() ?: 2f
+        // Like PrusaSlicer's estimate before slicing: the purge volume spread over 0.2 mm layers.
+        val purge = (value("multimaterial_purging")?.toFloatOrNull() ?: 140f).coerceAtLeast(15f)
+        val estimate = usedExtruders.size * purge / 0.2f / width.coerceAtLeast(1f)
+        // The last slice knows the real depth, which beats the estimate even after small changes.
+        val depth = result?.wipeTowerDepth?.takeIf { it > 0 }?.toFloat() ?: estimate
+        val height = objects.maxOfOrNull { it.size[2] }?.toFloat() ?: 0f
+        return floatArrayOf(wipeTowerX, wipeTowerY, width, depth, brim, height)
+    }
+
+    /** Box of the wipe tower for touch handling: {x, y, width, depth, height}. */
+    fun wipeTowerFootprint(): FloatArray = wipeTowerShape().let { floatArrayOf(it[0], it[1], it[2], it[3], it[5]) }
+
+    /** Sends the wipe tower to the engine. */
+    private fun syncSlots() {
+        if (presets == null) return
+        val visible = wipeTowerVisible
+        val tower = wipeTowerShape()
+        launchEngine {
+            NativeEngine.setWipeTower(visible, tower)
+            withContext(Dispatchers.Main) { redraw() }
+        }
+    }
+
+    /** Puts the wipe tower in the back right corner of the bed. */
+    private fun resetWipeTowerPosition() {
+        val pts = config["bed_shape"]?.split(',')?.mapNotNull { p ->
+            p.split('x').takeIf { it.size == 2 }?.let { (x, y) -> x.toFloatOrNull()?.let { fx -> y.toFloatOrNull()?.let { fx to it } } }
+        }.orEmpty()
+        val maxX = pts.maxOfOrNull { it.first } ?: 255f
+        val maxY = pts.maxOfOrNull { it.second } ?: 255f
+        val width = value("wipe_tower_width")?.toFloatOrNull() ?: 60f
+        wipeTowerX = maxX - width - 20f
+        wipeTowerY = maxY - 40f
+    }
+
+    /** Assigns a filament slot (1-based) to the whole object, or to one part when [part] >= 0. */
+    fun setObjectExtruder(id: Long, part: Int, extruder: Int) = launchEngine {
+        NativeEngine.setExtruder(id, part, extruder)
+        refreshObjects()
+    }
+
+    /** Live update while dragging the wipe tower. */
+    fun dragWipeTower(x: Float, y: Float, done: Boolean) {
+        wipeTowerX = x
+        wipeTowerY = y
+        if (done && result != null) resultStale = true
+        syncSlots()
     }
 
     /** Keeps brims of neighbouring objects from touching when arranging. */
@@ -260,10 +378,17 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun refreshObjects() {
         val objs = PlateObject.parseList(NativeEngine.objectsJson())
+        // Placing new objects and arranging move the wipe tower along with them.
+        val tower = NativeEngine.wipeTowerPosition()
         withContext(Dispatchers.Main) {
             objects = objs
+            if (wipeTowerVisible) {
+                wipeTowerX = tower[0]
+                wipeTowerY = tower[1]
+            }
             if (objs.none { it.id == selectedId }) selectedId = -1
             if (result != null) resultStale = true
+            syncSlots()
             redraw()
         }
     }
@@ -375,12 +500,15 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             deleteRecursively()
             mkdirs()
         }
-        val keys = overrides.keys.toTypedArray()
-        val values = keys.map { overrides.getValue(it) }.toTypedArray()
+        // Slot colors go to PrusaSlicer as the filament colors (preview and G-code metadata).
+        val settings = overrides + ("filament_colour" to slotColors.joinToString(";"))
+        val keys = settings.keys.toTypedArray()
+        val values = keys.map { settings.getValue(it) }.toTypedArray()
+        val filamentNames = filaments.toTypedArray()
         viewModelScope.launch {
             val r = withContext(Dispatchers.Default) {
                 SliceResult.parse(
-                    NativeEngine.slice(printer, print, filament, keys, values, outDir.absolutePath + "/") { percent, text ->
+                    NativeEngine.slice(printer, print, filamentNames, keys, values, outDir.absolutePath + "/") { percent, text ->
                         viewModelScope.launch(Dispatchers.Main) {
                             sliceProgress = percent
                             sliceStatus = text
@@ -395,6 +523,9 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
                 mode = ViewMode.Preview
                 layerRange = 0..(r.layerZs.size - 1).coerceAtLeast(0)
                 moveFraction = 1f
+                // Multi-color prints open in the filament view, single-color ones keep the chosen view.
+                if (r.extrudersUsed.size > 1 && viewType == 0) viewType = VIEW_TYPE_TOOL
+                syncSlots()
                 if (r.warnings.isNotEmpty()) message = r.warnings.joinToString("\n")
             } else if (!r.canceled) {
                 message = r.error ?: "Slicing failed."
@@ -418,6 +549,8 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun changeLayerRange(range: IntRange) {
+        // The moves slider works on the top layer; start a new top layer at its end, as PrusaSlicer does.
+        if (range.last != layerRange.last) moveFraction = 1f
         layerRange = range
         redraw()
     }
@@ -465,6 +598,12 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         private const val KEY_PRINTER = "printer"
         private const val KEY_PRINT = "print"
         private const val KEY_FILAMENT = "filament"
+        private const val KEY_FILAMENTS = "filaments"
+        private const val KEY_COLORS = "slot_colors"
+        /** Starting colors of the ACE slots until the user picks the loaded ones. */
+        val DEFAULT_SLOT_COLORS = listOf("#F2F2F2", "#2B2B2B", "#D32F2F", "#1E88E5")
         private const val KEY_OVERRIDES = "overrides"
     }
 }
+
+private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }

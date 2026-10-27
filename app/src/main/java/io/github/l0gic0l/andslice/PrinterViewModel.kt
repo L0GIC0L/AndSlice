@@ -12,6 +12,7 @@ import io.github.l0gic0l.andslice.octoprint.DiscoveredServer
 import io.github.l0gic0l.andslice.octoprint.OctoPrintClient
 import io.github.l0gic0l.andslice.octoprint.OctoPrintException
 import io.github.l0gic0l.andslice.octoprint.OctoPrintVersion
+import io.github.l0gic0l.andslice.octoprint.PrinterHost
 import io.github.l0gic0l.andslice.octoprint.PrinterStatus
 import io.github.l0gic0l.andslice.octoprint.discoverOctoPrint
 import kotlinx.coroutines.Job
@@ -21,14 +22,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
-/** OctoPrint connection: settings, live status, uploads and job control. */
+/** Print server connection (OctoPrint or Moonraker): settings, live status, uploads and job control. */
 class PrinterViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("octoprint", Context.MODE_PRIVATE)
 
     var url by mutableStateOf(prefs.getString(KEY_URL, "") ?: ""); private set
     var apiKey by mutableStateOf(prefs.getString(KEY_API_KEY, "") ?: ""); private set
-    val configured: Boolean get() = url.isNotBlank() && apiKey.isNotBlank()
+    /** Moonraker (and so Rinkhals) usually needs no API key, so the address alone is enough. */
+    val configured: Boolean get() = url.isNotBlank()
 
     var version by mutableStateOf<OctoPrintVersion?>(null); private set
     var status by mutableStateOf<PrinterStatus?>(null); private set
@@ -46,7 +48,10 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
 
     var message by mutableStateOf<String?>(null)
 
-    private fun client() = OctoPrintClient(url, apiKey)
+    /** The detected server; found again after a failure, in case the printer was off. */
+    private var host: PrinterHost? = null
+
+    private suspend fun client(): PrinterHost = host ?: PrinterHost.connect(url, apiKey).also { host = it }
 
     fun saveConnection(newUrl: String, newKey: String) {
         url = OctoPrintClient.normalizeUrl(newUrl)
@@ -55,6 +60,7 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
             putString(KEY_URL, url)
             putString(KEY_API_KEY, apiKey)
         }
+        host = null
         version = null
         status = null
         connectionError = null
@@ -65,6 +71,7 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         url = ""
         apiKey = ""
         prefs.edit { clear() }
+        host = null
         version = null
         status = null
         connectionError = null
@@ -78,7 +85,7 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         testResult = null
         viewModelScope.launch {
             testResult = try {
-                val v = OctoPrintClient(testUrl, testKey.trim()).version()
+                val v = PrinterHost.connect(testUrl, testKey.trim()).version()
                 "Connected to ${v.text}"
             } catch (e: OctoPrintException) {
                 e.message
@@ -105,6 +112,7 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: OctoPrintException) {
             connectionError = e.message
             status = null
+            host = null
         }
     }
 
@@ -114,7 +122,7 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 client().upload(file, print) { p -> uploadProgress = p }
-                message = if (print) "Sent ${file.name} to OctoPrint and started the print." else "Uploaded ${file.name} to OctoPrint."
+                message = if (print) "Sent ${file.name} to the printer and started the print." else "Uploaded ${file.name} to the printer."
                 refreshStatus()
             } catch (e: OctoPrintException) {
                 message = e.message
@@ -155,7 +163,7 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
                     }
             }
             discovering = false
-            if (discovered.isEmpty()) message = "No OctoPrint found on this network. Enter its address instead."
+            if (discovered.isEmpty()) message = "No OctoPrint found on this network. Enter the printer's address instead."
         }
     }
 

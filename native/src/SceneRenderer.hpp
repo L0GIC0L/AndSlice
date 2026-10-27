@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "Engine.hpp"
 #include "PreviewRenderer.hpp"
@@ -25,6 +26,9 @@ public:
     static constexpr int PaletteSize = 7;
     // RGBA colors: background, bed, grid, bed edges, object, selected object, object outside the bed.
     void        set_palette(const float colors[PaletteSize * 4]);
+    // RGBA per extruder (ACE slot). With colors set, every object part is drawn in the color of
+    // its filament; without them, objects use the palette's object color.
+    void        set_extruder_colors(const std::vector<float>& rgba);
 
     PreviewRenderer& preview() { return m_preview; }
 
@@ -40,6 +44,8 @@ private:
     void sync_preview();
     void draw_bed(const float viewproj[16]);
     void draw_objects(const float viewproj[16], bool dimmed);
+    void draw_wipe_tower(const float viewproj[16], bool dimmed);
+    void object_color(const PlateObject& o, int extruder, bool dimmed, float out[4]) const;
 
     unsigned m_mesh_program = 0;
     unsigned m_line_program = 0;
@@ -50,6 +56,9 @@ private:
     uint64_t                    m_plate_revision = 0;
 
     unsigned m_bed_vao = 0, m_bed_vbo = 0;
+    unsigned m_cube_vao = 0, m_cube_vbo = 0, m_cube_ibo = 0;
+    WipeTowerShape m_wipe_tower;
+    std::vector<std::array<float, 4>> m_extruder_colors;
     int      m_bed_fill_first = 0, m_bed_fill_count = 0;
     int      m_bed_grid_first = 0, m_bed_grid_count = 0;
     int      m_bed_edge_first = 0, m_bed_edge_count = 0;

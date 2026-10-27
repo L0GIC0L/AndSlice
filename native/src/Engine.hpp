@@ -33,6 +33,8 @@ struct MeshData {
     std::vector<float>    positions; // x, y, z per vertex
     std::vector<uint32_t> indices;   // three per triangle
     std::array<float, 3>  min{}, max{};
+    // {first index, index count} of each model part, in the object's volume order.
+    std::vector<std::array<uint32_t, 2>> parts;
 };
 
 // One object on the plate as the renderer and the thumbnail generator see it.
@@ -42,6 +44,16 @@ struct PlateObject {
     std::array<float, 16>            transform{}; // column-major instance matrix
     bool                             selected = false;
     bool                             outside  = false;
+    std::vector<int>                 part_extruders; // 1-based extruder of each mesh part
+};
+
+// Footprint of the wipe (prime) tower on the bed; empty when no tower is printed.
+struct WipeTowerShape {
+    bool  visible = false;
+    float x = 0.f, y = 0.f;          // front left corner, mm
+    float width = 0.f, depth = 0.f;  // without the brim
+    float brim = 0.f;
+    float height = 0.f;
 };
 
 struct BedShape {
@@ -52,7 +64,8 @@ struct BedShape {
 struct SliceRequest {
     std::string printer;
     std::string print;
-    std::string filament;
+    // Filament preset of each extruder (ACE slot); the last one repeats for missing extruders.
+    std::vector<std::string> filaments;
     // Option key -> PrusaSlicer serialized value, applied over the presets.
     std::vector<std::pair<std::string, std::string>> overrides;
     std::string output_path;
@@ -68,11 +81,11 @@ public:
     void init(const std::string& data_dir, const std::string& resources_dir, const std::string& bundle_path);
 
     // ---------------------------------------------------------------- profiles
-    // {"printers":[...], "prints":[...], "filaments":[...], "default_print":..., "default_filament":...}
-    // where prints and filaments are the presets compatible with `printer`.
+    // {"printers":[...], "prints":[...], "filaments":[...], "default_print":..., "default_filament":...,
+    //  "extruders": N} where prints and filaments are the presets compatible with `printer`.
     std::string presets_json(const std::string& printer);
-    // Fully resolved configuration (key -> serialized value) for the preset triple.
-    std::string config_json(const std::string& printer, const std::string& print, const std::string& filament);
+    // Fully resolved configuration (key -> serialized value) for the printer, print and per-extruder filaments.
+    std::string config_json(const std::string& printer, const std::string& print, const std::vector<std::string>& filaments);
     // Metadata of every option the settings screen can edit, grouped by preset type.
     std::string option_defs_json();
     // Selects the printer whose bed is drawn and used for placement.
@@ -93,6 +106,12 @@ public:
     bool        lay_on_face(uint64_t id, const float origin[3], const float dir[3]);
     void        arrange();
     void        center_object(uint64_t id);
+    // Assigns a 1-based extruder (ACE slot) to a whole object (part < 0) or to one of its model parts.
+    // Assigning the whole object also clears the per-part choices.
+    void        set_extruder(uint64_t id, int part, int extruder);
+    // Wipe tower placement used for arranging and slicing; the UI decides whether one is printed.
+    void        set_wipe_tower(const WipeTowerShape& shape);
+    WipeTowerShape wipe_tower() const;
     std::string objects_json();
     void        select(int64_t id);
     // Returns the id of the closest object hit by the world-space ray, or -1.
@@ -116,7 +135,8 @@ private:
     ~Engine();
 
     Slic3r::DynamicPrintConfig resolve_config(const std::string& printer, const std::string& print,
-                                              const std::string& filament);
+                                              const std::vector<std::string>& filaments);
+    void                       arrange_plate();
     Slic3r::ModelObject*       find_object(uint64_t id);
     void                       place_new_objects(size_t first_new);
     void                       touch_plate();
@@ -128,6 +148,7 @@ private:
     BedShape                               m_bed;
     int64_t                                m_selected = -1;
     float                                  m_arrange_distance = 6.f;
+    WipeTowerShape                         m_wipe_tower;
     std::vector<std::pair<uint64_t, std::shared_ptr<const MeshData>>> m_meshes;
     std::atomic<uint64_t>                  m_plate_revision{1};
 

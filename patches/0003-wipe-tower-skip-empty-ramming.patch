@@ -1,0 +1,15 @@
+diff --git a/src/libslic3r/GCode/WipeTower.cpp b/src/libslic3r/GCode/WipeTower.cpp
+index 4dc3e88..b9ca928 100644
+--- a/src/libslic3r/GCode/WipeTower.cpp
++++ b/src/libslic3r/GCode/WipeTower.cpp
+@@ -896,7 +896,9 @@ void WipeTower::toolchange_Unload(
+ 	float remaining = xr - xl ;							// keeps track of distance to the next turnaround
+ 	float e_done = 0;									// measures E move done from each segment   
+ 
+-    const bool do_ramming = m_semm || m_filpar[m_current_tool].multitool_ramming;
++    // Single extruder MM printers that swap filament in firmware (such as the Anycubic ACE) leave
++    // the ramming speeds empty; skip ramming, and with it the pressure advance reset, for them.
++    const bool do_ramming = (m_semm && ! m_filpar[m_current_tool].ramming_speed.empty()) || m_filpar[m_current_tool].multitool_ramming;
+     const bool cold_ramming = m_is_mk4mmu3;
+ 
+     if (do_ramming) {

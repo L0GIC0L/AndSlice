@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Opacity
 import androidx.compose.material.icons.filled.Park
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material3.AlertDialog
@@ -61,6 +60,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,9 +111,9 @@ fun PlateBottomBar(vm: SlicerViewModel) {
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                PickerChip(Icons.Default.RadioButtonChecked, shortPresetName(vm.printer), "Nozzle") { sheet = "printer" }
+                PickerChip(Icons.Default.RadioButtonChecked, shortPresetName(vm.printer), "Printer") { sheet = "printer" }
                 PickerChip(Icons.Default.Layers, shortPresetName(vm.print), "Print profile") { sheet = "print" }
-                PickerChip(Icons.Default.Opacity, shortPresetName(vm.filament), "Filament") { sheet = "filament" }
+                FilamentChips(vm) { slot -> sheet = "filament:$slot" }
             }
             // Quick settings
             Row(
@@ -147,13 +148,16 @@ fun PlateBottomBar(vm: SlicerViewModel) {
         }
     }
 
-    when (sheet) {
-        "printer" -> ChoiceSheet("Nozzle", presets.printers.map { Choice(it, shortPresetName(it)) }, vm.printer,
-            onDismiss = { sheet = null }, onSelect = vm::selectPrinter)
+    when (val s = sheet) {
+        "printer" -> ChoiceSheet("Printer and nozzle", presets.printers.map { Choice(it, shortPresetName(it), printerDescription(it)) },
+            vm.printer, onDismiss = { sheet = null }, onSelect = vm::selectPrinter)
         "print" -> ChoiceSheet("Print profile", presets.prints.map { Choice(it, shortPresetName(it)) }, vm.print,
             onDismiss = { sheet = null }, onSelect = vm::selectPrint)
-        "filament" -> ChoiceSheet("Filament", presets.filaments.map { Choice(it, shortPresetName(it)) }, vm.filament,
-            onDismiss = { sheet = null }, onSelect = vm::selectFilament)
+        else -> if (s != null && s.startsWith("filament:")) {
+            FilamentSheet(vm, s.substringAfter(':').toInt(), onDismiss = { sheet = null })
+        }
+    }
+    when (sheet) {
         "supports" -> ChoiceSheet("Supports", SUPPORT_CHOICES, supportsChoice(vm), onDismiss = { sheet = null }) { choice ->
             vm.setOverride("support_material", if (choice == "off") "0" else "1")
             if (choice != "off") vm.setOverride("support_material_buildplate_only", if (choice == "plate") "1" else "0")
@@ -161,6 +165,9 @@ fun PlateBottomBar(vm: SlicerViewModel) {
         "infill" -> InfillSheet(vm, onDismiss = { sheet = null })
     }
 }
+
+private fun printerDescription(name: String) =
+    if ("Combo" in name) "Kobra 3 with the ACE Pro: four filaments, multi-color" else "Kobra 3, single filament"
 
 private val SUPPORT_CHOICES = listOf(
     Choice("off", "No supports"),
@@ -216,6 +223,7 @@ private fun InfillSheet(vm: SlicerViewModel, onDismiss: () -> Unit) {
 @Composable
 fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Modifier) {
     var editing by remember { mutableStateOf(false) }
+    var choosingFilament by remember { mutableStateOf(false) }
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Surface(
             shape = RoundedCornerShape(16.dp),
@@ -244,6 +252,12 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
                 FilledIconToggleButton(checked = vm.layFaceMode, onCheckedChange = { vm.toggleLayFaceMode() }) {
                     Icon(Icons.Default.FlipToBack, "Lay on face")
                 }
+                if (vm.multiMaterial) {
+                    IconButton(onClick = { choosingFilament = true }, modifier = Modifier.semantics { contentDescription = "Filament" }) {
+                        val slot = obj.extruders.singleOrNull()
+                        SlotDot(vm.slotColors.getOrElse((slot ?: 1) - 1) { "#808080" }, slot, 24.dp)
+                    }
+                }
                 IconButton(onClick = { vm.rotateSelected(2, 90.0) }) { Icon(Icons.AutoMirrored.Filled.RotateRight, "Rotate 90°") }
                 IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Move, rotate, scale") }
                 IconButton(onClick = vm::centerSelected) { Icon(Icons.Default.CenterFocusStrong, "Center") }
@@ -252,6 +266,7 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
             }
         }
     }
+    if (choosingFilament) ObjectFilamentSheet(vm, obj, onDismiss = { choosingFilament = false })
     if (editing) TransformDialog(obj, onDismiss = { editing = false }, onApply = { t ->
         editing = false
         vm.setTransform(obj.id, t)

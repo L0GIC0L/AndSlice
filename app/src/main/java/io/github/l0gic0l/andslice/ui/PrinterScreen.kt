@@ -74,7 +74,7 @@ import io.github.l0gic0l.andslice.octoprint.Temperature
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-/** OctoPrint connection, printer status and job control. */
+/** Print server connection (OctoPrint or Moonraker), printer status and job control. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PrinterScreen(printer: PrinterViewModel, snackbar: SnackbarHostState, onBack: () -> Unit) {
@@ -129,11 +129,11 @@ private fun ConnectionForm(printer: PrinterViewModel, onSaved: () -> Unit, onCan
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(12.dp))
-                Text("Connect to OctoPrint", style = MaterialTheme.typography.titleLarge)
+                Text("Connect your printer", style = MaterialTheme.typography.titleLarge)
             }
             Text(
-                "Upload G-code and start prints over Wi-Fi. Works with OctoPrint and with Moonraker's OctoPrint " +
-                    "compatibility (for example a Kobra 3 running Rinkhals).",
+                "Upload G-code and start prints over Wi-Fi with OctoPrint or Moonraker. For a Kobra 3 running " +
+                    "Rinkhals, enter the printer's IP address; no API key is needed.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -141,7 +141,7 @@ private fun ConnectionForm(printer: PrinterViewModel, onSaved: () -> Unit, onCan
                 value = url,
                 onValueChange = { url = it },
                 label = { Text("Address") },
-                placeholder = { Text("http://octopi.local") },
+                placeholder = { Text("192.168.1.50 or http://octopi.local") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
@@ -149,8 +149,8 @@ private fun ConnectionForm(printer: PrinterViewModel, onSaved: () -> Unit, onCan
             OutlinedTextField(
                 value = key,
                 onValueChange = { key = it },
-                label = { Text("API key") },
-                supportingText = { Text("OctoPrint: Settings → Application Keys (or the global API key)") },
+                label = { Text("API key (OctoPrint)") },
+                supportingText = { Text("OctoPrint: Settings → Application Keys. Leave empty for Moonraker.") },
                 singleLine = true,
                 visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -194,7 +194,7 @@ private fun ConnectionForm(printer: PrinterViewModel, onSaved: () -> Unit, onCan
                         printer.saveConnection(url, key)
                         onSaved()
                     },
-                    enabled = url.isNotBlank() && key.isNotBlank(),
+                    enabled = url.isNotBlank(),
                 ) { Text("Save") }
             }
 
@@ -316,7 +316,7 @@ private fun ConnectionSummary(printer: PrinterViewModel, onEdit: () -> Unit) {
     var confirmForget by rememberSaveable { mutableStateOf(false) }
     OutlinedCard {
         ListItem(
-            headlineContent = { Text("OctoPrint") },
+            headlineContent = { Text(printer.version?.text ?: "Printer") },
             supportingContent = { Text(printer.url) },
             leadingContent = { Icon(Icons.Default.Dns, null) },
             trailingContent = { TextButton(onClick = { confirmForget = true }) { Text("Disconnect") } },
@@ -326,7 +326,7 @@ private fun ConnectionSummary(printer: PrinterViewModel, onEdit: () -> Unit) {
     if (confirmForget) {
         AlertDialog(
             onDismissRequest = { confirmForget = false },
-            title = { Text("Disconnect from OctoPrint?") },
+            title = { Text("Disconnect from the printer?") },
             text = { Text("The address and API key are removed from this device.") },
             confirmButton = {
                 TextButton(onClick = {

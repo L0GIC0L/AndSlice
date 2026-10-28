@@ -1,5 +1,15 @@
 package io.github.l0gic0l.andslice.ui
 
+import io.github.l0gic0l.andslice.octoprint.OctoPrintException
+import io.github.l0gic0l.andslice.octoprint.FilamentSlots
+import io.github.l0gic0l.andslice.octoprint.FilamentSlot
+import io.github.l0gic0l.andslice.PrinterViewModel
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -224,4 +234,85 @@ private fun SlotPicker(vm: SlicerViewModel, label: String, selected: Int?, onSel
             }
         }
     }
+}
+
+/**
+ * Reads what the printer's ACE holds and offers it for the filament slots: each loaded slot's
+ * color and the filament profile that fits it. Shown for multi-material printers with a connection.
+ */
+@Composable
+fun ReadAceButton(vm: SlicerViewModel, printer: PrinterViewModel, chip: Boolean) {
+    if (!vm.multiMaterial || !printer.configured) return
+    val scope = rememberCoroutineScope()
+    var reading by remember { mutableStateOf(false) }
+    var slots by remember { mutableStateOf<List<FilamentSlot>?>(null) }
+    val read: () -> Unit = {
+        reading = true
+        scope.launch {
+            try {
+                slots = printer.readFilamentSlots() ?: run {
+                    vm.message = "The printer does not report what its ACE holds. Rinkhals does."
+                    null
+                }
+            } catch (e: OctoPrintException) {
+                vm.message = e.message
+            } finally {
+                reading = false
+            }
+        }
+    }
+    if (chip) {
+        AssistChip(
+            onClick = read,
+            enabled = !reading,
+            label = { Text("Read ACE") },
+            leadingIcon = { Icon(Icons.Default.Sync, null, Modifier.size(18.dp)) },
+        )
+    } else {
+        TextButton(onClick = read, enabled = !reading) {
+            Icon(Icons.Default.Sync, null, Modifier.size(18.dp))
+            Text("Read from ACE", Modifier.padding(start = 8.dp))
+        }
+    }
+    slots?.let { found -> AceSlotsDialog(vm, found, onDismiss = { slots = null }) }
+}
+
+@Composable
+private fun AceSlotsDialog(vm: SlicerViewModel, slots: List<FilamentSlot>, onDismiss: () -> Unit) {
+    val presets = vm.presets?.allFilaments.orEmpty()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Sync, null) },
+        title = { Text("Filament in the ACE") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                slots.forEach { slot ->
+                    val match = FilamentSlots.matchPreset(slot, presets)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SlotDot(slot.color ?: "#808080", slot.index + 1, 28.dp)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(
+                                if (!slot.loaded) "Empty" else slot.name.ifEmpty { slot.material }.ifEmpty { "Unknown filament" },
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            if (slot.loaded) {
+                                Text(
+                                    match?.let { "Profile: ${shortFilamentName(it)}" } ?: "No matching profile; the slot keeps its own",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                vm.applyPrinterSlots(slots)
+                onDismiss()
+            }, enabled = slots.any { it.loaded }) { Text("Use these") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

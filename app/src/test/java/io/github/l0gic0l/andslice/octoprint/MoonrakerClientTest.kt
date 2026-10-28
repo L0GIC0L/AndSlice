@@ -21,6 +21,9 @@ private class FakeMoonraker {
     var webcams = "[]"
     var version = "v0.9.3-1"
     var homed = "xyz"
+    /** Moonraker components; Rinkhals adds "mmu_ace". */
+    var components = "[]"
+    var objects = "[]"
     /** Body of a 400 answer to every G-code script, or null to accept them. */
     var scriptError: String? = null
 
@@ -28,7 +31,13 @@ private class FakeMoonraker {
 
     private fun respond(r: FakeHttpServer.Request): Pair<Int, String> = when {
         r.path == "/server/info" ->
-            200 to """{"result":{"klippy_connected":true,"klippy_state":"$klippy","moonraker_version":"$version"}}"""
+            200 to """{"result":{"klippy_connected":true,"klippy_state":"$klippy","moonraker_version":"$version","components":$components}}"""
+        r.path == "/printer/objects/list" -> 200 to """{"result":{"objects":$objects}}"""
+        r.path == "/printer/objects/query?mmu" -> 200 to """{"result":{"eventtime":1.0,"status":{"mmu":{"num_gates":4,
+            "gate_status":[1,-1,0,1],"gate_material":["PLA","PLA","unknown","PETG"],
+            "gate_filament_name":["PLA Matte","PLA","",""],"gate_color":["000000FF","E01B24FF","00000000","685BC7FF"]}}}}"""
+        r.path == "/printer/objects/query?ace_instance_0" -> 200 to """{"result":{"eventtime":1.0,"status":{"ace_instance_0":{
+            "slots":[{"index":0,"status":"ready","color":[104,91,199],"material":"PETG"},{"index":1,"status":"empty","color":[0,0,0],"material":""}]}}}}"""
         r.path.startsWith("/printer/objects/query") -> 200 to """{"result":{"eventtime":1.0,"status":{
             "print_stats":{"state":"$state","filename":"benchy.gcode","print_duration":600.0},
             "virtual_sdcard":{"progress":0.4},
@@ -125,6 +134,27 @@ class MoonrakerClientTest {
         assertTrue(server.requests.any { it.method == "POST" && it.path == "/printer/print/start?filename=parts%2Fnew+part.gcode" })
         client.deleteFile("parts/new part.gcode")
         assertTrue(server.requests.any { it.method == "DELETE" })
+    }
+
+    @Test
+    fun readsTheAceSlotsFromRinkhals() = runBlocking {
+        server.components = """["mmu_ace","kobra"]"""
+        val slots = MoonrakerClient(server.url, "").filamentSlots()!!
+        assertEquals(listOf(true, true, false, true), slots.map { it.loaded })
+        assertEquals(listOf("#000000", "#E01B24", "#000000", "#685BC7"), slots.map { it.color })
+        assertEquals("PLA Matte", slots[0].name)
+        assertEquals("", slots[2].material)
+        // Rinkhals adds mmu without listing it, so the list is not asked for.
+        assertTrue(server.requests.none { it.path == "/printer/objects/list" })
+    }
+
+    @Test
+    fun readsTheAceproDriverOnlyWhenListed() = runBlocking {
+        assertNull(MoonrakerClient(server.url, "").filamentSlots())
+        assertTrue(server.requests.none { it.path.startsWith("/printer/objects/query?") })
+        server.objects = """["toolhead","ace_instance_0"]"""
+        val slots = MoonrakerClient(server.url, "").filamentSlots()!!
+        assertEquals(listOf("#685BC7" to true, "#000000" to false), slots.map { it.color to it.loaded })
     }
 
     @Test

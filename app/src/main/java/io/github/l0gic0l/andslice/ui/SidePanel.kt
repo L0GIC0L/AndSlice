@@ -143,6 +143,9 @@ private fun PlateOverview(vm: SlicerViewModel, printers: PrinterViewModel, onAdd
                 modifier = Modifier.clickable { sheet = PlateSheets.filament(slot) },
             )
         }
+        item(key = "read-ace") {
+            Box(Modifier.padding(horizontal = 12.dp)) { ReadAceButton(vm, printers, chip = false) }
+        }
 
         section("Quick settings")
         item(key = "supports") {

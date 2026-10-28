@@ -10,6 +10,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.l0gic0l.andslice.octoprint.DiscoveredServer
+import io.github.l0gic0l.andslice.octoprint.FilamentSlot
 import io.github.l0gic0l.andslice.octoprint.Heater
 import io.github.l0gic0l.andslice.octoprint.OctoPrintClient
 import io.github.l0gic0l.andslice.octoprint.OctoPrintException
@@ -294,6 +295,14 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
     fun pauseOrResume() = command { client().pauseOrResume() }
 
     fun cancelPrint() = command { client().cancel() }
+
+    // ------------------------------------------------------------------ filament slots
+
+    /** What the printer's ACE holds; null when the printer does not report it. Throws when unreachable. */
+    suspend fun readFilamentSlots(): List<FilamentSlot>? {
+        if (!configured) throw OctoPrintException("Connect the printer first, on the printer screen.")
+        return client().filamentSlots()
+    }
 
     // ------------------------------------------------------------------ files on the printer
 

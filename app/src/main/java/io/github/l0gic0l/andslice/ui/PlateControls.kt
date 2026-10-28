@@ -144,6 +144,7 @@ fun PlateBottomBar(vm: SlicerViewModel, printers: PrinterViewModel, onAddPrinter
                 PickerChip(Icons.Default.Print, printerName + nozzle, "Printer profile") { sheet = PlateSheets.PRINTER }
                 PickerChip(Icons.Default.Layers, shortPresetName(vm.print), "Print profile") { sheet = PlateSheets.PRINT }
                 FilamentChips(vm) { slot -> sheet = PlateSheets.filament(slot) }
+                ReadAceButton(vm, printers, chip = true)
             }
             // Quick settings
             ChipRow {

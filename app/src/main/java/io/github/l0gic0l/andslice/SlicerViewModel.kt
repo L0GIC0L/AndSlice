@@ -26,6 +26,8 @@ import io.github.l0gic0l.andslice.engine.PresetType
 import io.github.l0gic0l.andslice.engine.PreviewInfo
 import io.github.l0gic0l.andslice.engine.SliceResult
 import io.github.l0gic0l.andslice.engine.VIEW_TYPE_TOOL
+import io.github.l0gic0l.andslice.octoprint.FilamentSlot
+import io.github.l0gic0l.andslice.octoprint.FilamentSlots
 import io.github.l0gic0l.andslice.printers.PrinterStore
 import io.github.l0gic0l.andslice.printers.SavedPrinter
 import kotlinx.coroutines.CompletableDeferred
@@ -449,6 +451,28 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         val width = value("wipe_tower_width")?.toFloatOrNull() ?: 60f
         wipeTowerX = maxX - width - 20f
         wipeTowerY = maxY - 40f
+    }
+
+    /**
+     * Uses what the printer's ACE holds: each loaded slot's color, and the filament profile that fits
+     * its filament. Slots without a fitting profile keep theirs.
+     */
+    fun applyPrinterSlots(slots: List<FilamentSlot>) {
+        val lists = presets ?: return
+        val newFilaments = filaments.toMutableList()
+        val newColors = slotColors.toMutableList()
+        for (slot in slots) {
+            if (!slot.loaded || slot.index !in newFilaments.indices) continue
+            FilamentSlots.matchPreset(slot, lists.allFilaments)?.let { newFilaments[slot.index] = it }
+            slot.color?.let { if (slot.index in newColors.indices) newColors[slot.index] = it }
+        }
+        slotColors = newColors
+        if (newFilaments != filaments) {
+            changePresets(filaments = newFilaments, reset = PresetType.Filament)
+        } else {
+            settingsChanged()
+            syncSlots()
+        }
     }
 
     /** Assigns a filament slot (1-based) to the whole object, or to one part when [part] >= 0. */

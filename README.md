@@ -50,7 +50,8 @@ Android 12+ and light and dark themes.
 - **Your profiles:** save print, filament and printer settings as profiles of your own (Settings → Save as)
 - **Multi-color with the ACE Pro** (Kobra 3 Combo): a filament and color per ACE slot, objects and parts
   assigned to slots, objects drawn in their filament colors, a movable prime tower, and a filament view in the
-  preview
+  preview. **Read ACE** fills the slots from the printer: each loaded slot's color and the filament profile
+  for its material, from Rinkhals' `mmu` object or Klipper's ACEPRO driver
 - Quick settings for supports (on the plate, everywhere or only where painted; grid, snug or organic tree
   supports), infill and brim, plus a full editor for every PrusaSlicer print, filament and
   printer option. Options sit on PrusaSlicer's own pages and groups (Simple / Advanced / Expert, with
@@ -134,7 +135,7 @@ API key is stored in the app's private storage.
 
 1. Pick a **Kobra 3 Combo** printer (the first chip in the bar under the plate).
 2. Four filament chips appear, one per ACE slot. Tap each to choose its material and the color that is
-   loaded there.
+   loaded there, or tap **Read ACE** to take both from a connected printer running Rinkhals.
 3. Select an object and tap the colored dot in its toolbar to choose its slot. Objects made of several parts
    (from 3MF, OBJ or AMF files) can have a slot per part. Painted 3MF projects keep their painting.
 4. To color areas of an object, tap the brush in its toolbar → **Paint filaments**, pick a slot and paint

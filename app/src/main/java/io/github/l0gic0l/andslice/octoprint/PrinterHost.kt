@@ -38,6 +38,9 @@ interface PrinterHost {
     /** Recent prints, newest first; empty when the server keeps no history. */
     suspend fun history(): List<PrintRecord> = emptyList()
 
+    /** What the printer's filament changer (the ACE Pro) holds, or null when the server does not say. */
+    suspend fun filamentSlots(): List<FilamentSlot>? = null
+
     /** Address of the server's web interface, to show in a browser. */
     suspend fun webInterface(): String = "$baseUrl/"
 

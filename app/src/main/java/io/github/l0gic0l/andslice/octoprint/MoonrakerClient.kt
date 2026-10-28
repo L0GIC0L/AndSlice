@@ -80,6 +80,28 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
 
     override suspend fun cancel() = withContext(Dispatchers.IO) { command("/printer/print/cancel") }
 
+    /**
+     * The ACE's slots: Rinkhals reports them as Happy Hare's `mmu` object, Klipper's ACEPRO driver as
+     * `ace_instance_0`. Only objects the printer has are asked for, since Anycubic's firmware can fail
+     * on unknown ones; Rinkhals adds `mmu` without listing it.
+     */
+    override suspend fun filamentSlots(): List<FilamentSlot>? = withContext(Dispatchers.IO) {
+        val components = result(http.request("GET", "/server/info")).optJSONArray("components")
+        val rinkhals = components != null && (0 until components.length()).any { components.optString(it) in setOf("mmu_ace", "kobra") }
+        val objects = if (rinkhals) {
+            listOf("mmu")
+        } else {
+            val listed = result(http.request("GET", "/printer/objects/list")).optJSONArray("objects")
+            val names = (0 until (listed?.length() ?: 0)).map { listed!!.optString(it) }.toSet()
+            listOf("mmu", "ace_instance_0").filter { it in names }
+        }
+        if (objects.isEmpty()) return@withContext null
+        val status = result(http.request("GET", "/printer/objects/query?" + objects.joinToString("&"))).optJSONObject("status")
+            ?: return@withContext null
+        status.optJSONObject("mmu")?.let(FilamentSlots::fromMmu)?.takeIf { it.isNotEmpty() }
+            ?: status.optJSONObject("ace_instance_0")?.let(FilamentSlots::fromAcePro)?.takeIf { it.isNotEmpty() }
+    }
+
     override suspend fun files(): List<PrinterFile> = withContext(Dispatchers.IO) {
         val list = JSONObject(http.request("GET", "/server/files/list?root=gcodes").body).optJSONArray("result") ?: JSONArray()
         (0 until list.length()).map { list.getJSONObject(it) }

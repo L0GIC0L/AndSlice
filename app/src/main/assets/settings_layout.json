@@ -72,6 +72,14 @@
       "top_one_perimeter_type",
       "only_one_perimeter_first_layer"
      ]
+    },
+    {
+     "title": "Z anti-aliasing",
+     "keys": [
+      "zaa_enabled",
+      "zaa_min_z",
+      "zaa_minimize_perimeter_height"
+     ]
     }
    ]
   },

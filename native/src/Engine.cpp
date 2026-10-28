@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <set>
 
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem.hpp>
@@ -19,6 +21,7 @@
 #include <arrange-wrapper/SceneBuilder.hpp>
 
 #include "libslic3r/libslic3r.h"
+#include "libslic3r/AABBMesh.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/FileReader.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
@@ -30,12 +33,30 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/TriangleSelector.hpp"
 #include "libslic3r/Utils.hpp"
 
 using nlohmann::json;
 using namespace Slic3r;
 
 namespace andslice {
+
+// An object being painted: a TriangleSelector and a raycaster per model part, as in
+// PrusaSlicer's painting gizmos, plus the undo history of the strokes.
+struct Engine::PaintSession {
+    uint64_t                                       object_id = 0;
+    int                                            mode = PaintSupports;
+    std::vector<ModelVolume*>                      volumes;
+    std::vector<std::unique_ptr<TriangleSelector>> selectors;
+    std::vector<std::unique_ptr<AABBMesh>>         raycasters;
+    std::set<int>                                  states;     // states that may be painted somewhere
+    bool                                           stroke = false;
+    int                                            last_volume = -1;
+    Vec3f                                          last_hit = Vec3f::Zero();
+    int                                            last_facet = -1;
+    std::vector<std::vector<TriangleSelector::TriangleSplittingData>> undo; // state before each stroke
+    std::shared_ptr<const PaintMesh>               mesh;
+};
 
 Engine& Engine::get()
 {
@@ -56,6 +77,9 @@ void Engine::init(const std::string& data_dir, const std::string& resources_dir,
     m_data_dir = data_dir;
 
     // Start from an empty plate; init runs once per app process (or per test).
+    // The paint session points into the model, so it goes first.
+    m_paint.reset();
+    m_paint_cache.clear();
     m_model->clear_objects();
     m_meshes.clear();
     m_selected = -1;
@@ -590,6 +614,7 @@ void Engine::remove_object(uint64_t id)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (ModelObject* o = find_object(id)) {
+        end_paint_of(id);
         m_model->delete_object(o);
         m_meshes.erase(std::remove_if(m_meshes.begin(), m_meshes.end(),
                                       [id](const auto& m) { return m.first == id; }),
@@ -603,6 +628,8 @@ void Engine::remove_object(uint64_t id)
 void Engine::clear_plate()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+    m_paint.reset();
+    m_paint_cache.clear();
     m_model->clear_objects();
     m_meshes.clear();
     m_selected = -1;
@@ -817,9 +844,10 @@ std::string Engine::objects_json()
         const BoundingBoxf3 bb = o->instance_bounding_box(0);
         const Vec3d off = inst->get_offset(), rot = inst->get_rotation(), scale = inst->get_scaling_factor();
         json parts = json::array();
-        bool painted = false;
+        bool painted = false, support_painted = false;
         for (const ModelVolume* v : o->volumes) {
             painted = painted || v->is_mm_painted();
+            support_painted = support_painted || (v->is_model_part() && !v->supported_facets.empty());
             if (v->is_model_part())
                 parts.push_back({ {"name", v->name}, {"extruder", std::max(v->extruder_id(), 1)} });
         }
@@ -836,6 +864,7 @@ std::string Engine::objects_json()
             {"extruder", extruder},
             {"parts", parts},
             {"painted", painted},
+            {"support_painted", support_painted},
         });
     }
     return out.dump();
@@ -863,11 +892,312 @@ std::vector<PlateObject> Engine::plate_snapshot()
         for (const ModelVolume* v : o->volumes)
             if (v->is_model_part())
                 po.part_extruders.push_back(std::max(v->extruder_id(), 1));
+        po.paint = m_paint && m_paint->object_id == po.id ? m_paint->mesh : color_paint_for(*o);
         const Transform3f m = o->instances.front()->get_matrix().cast<float>();
         std::copy(m.data(), m.data() + 16, po.transform.begin());
         out.push_back(std::move(po));
     }
     return out;
+}
+
+// ------------------------------------------------------------------- painting
+
+namespace {
+
+// Triangles of each paint state, three vertices each, in object coordinates.
+using StateTriangles = std::map<int, std::vector<float>>;
+
+void add_facets(StateTriangles& out, int state, const indexed_triangle_set& its, const Transform3d& volume_matrix)
+{
+    if (its.indices.empty())
+        return;
+    std::vector<float>& v = out[state];
+    v.reserve(v.size() + its.indices.size() * 9);
+    for (const stl_triangle_vertex_indices& f : its.indices)
+        for (int k = 0; k < 3; ++k) {
+            const Vec3f p = (volume_matrix * its.vertices[f[k]].cast<double>()).cast<float>();
+            v.insert(v.end(), { p.x(), p.y(), p.z() });
+        }
+}
+
+std::shared_ptr<const PaintMesh> make_paint_mesh(int mode, const StateTriangles& by_state)
+{
+    auto mesh = std::make_shared<PaintMesh>();
+    mesh->mode = mode;
+    for (const auto& [state, v] : by_state) {
+        if (v.empty())
+            continue;
+        mesh->groups.push_back({ uint32_t(state), uint32_t(mesh->positions.size() / 3), uint32_t(v.size() / 3) });
+        mesh->positions.insert(mesh->positions.end(), v.begin(), v.end());
+    }
+    return mesh->groups.empty() ? nullptr : mesh;
+}
+
+FacetsAnnotation& paint_facets(ModelVolume& volume, int mode)
+{
+    return mode == PaintColors ? volume.mm_segmentation_facets : volume.supported_facets;
+}
+
+void used_states(const TriangleSelector::TriangleSplittingData& data, std::set<int>& out)
+{
+    for (size_t state = 1; state < data.used_states.size(); ++state)
+        if (data.used_states[state])
+            out.insert(int(state));
+}
+
+} // namespace
+
+std::shared_ptr<const PaintMesh> Engine::color_paint_for(const ModelObject& object)
+{
+    uint64_t stamp = 0;
+    bool     painted = false;
+    for (const ModelVolume* v : object.volumes)
+        if (v->is_model_part()) {
+            stamp   = stamp * 1000003u + v->mm_segmentation_facets.timestamp();
+            painted = painted || !v->mm_segmentation_facets.empty();
+        }
+    const uint64_t id = object.id().id;
+    auto cached = std::find_if(m_paint_cache.begin(), m_paint_cache.end(), [id](const PaintCacheEntry& e) { return e.id == id; });
+    if (!painted) {
+        if (cached != m_paint_cache.end())
+            m_paint_cache.erase(cached);
+        return nullptr;
+    }
+    if (cached != m_paint_cache.end() && cached->stamp == stamp)
+        return cached->mesh;
+
+    StateTriangles by_state;
+    for (const ModelVolume* v : object.volumes) {
+        if (!v->is_model_part() || v->mm_segmentation_facets.empty())
+            continue;
+        TriangleSelector selector(v->mesh());
+        selector.deserialize(v->mm_segmentation_facets.get_data(), false);
+        std::set<int> states;
+        used_states(v->mm_segmentation_facets.get_data(), states);
+        for (int state : states)
+            add_facets(by_state, state, selector.get_facets(TriangleStateType(state)), v->get_matrix());
+    }
+    auto mesh = make_paint_mesh(PaintColors, by_state);
+    if (cached != m_paint_cache.end())
+        *cached = { id, stamp, mesh };
+    else
+        m_paint_cache.push_back({ id, stamp, mesh });
+    return mesh;
+}
+
+void Engine::update_paint_mesh(PaintSession& session)
+{
+    StateTriangles by_state;
+    for (size_t i = 0; i < session.selectors.size(); ++i)
+        for (int state : session.states)
+            add_facets(by_state, state, session.selectors[i]->get_facets(TriangleStateType(state)), session.volumes[i]->get_matrix());
+    session.mesh = make_paint_mesh(session.mode, by_state);
+}
+
+void Engine::end_paint_of(uint64_t id)
+{
+    if (m_paint && m_paint->object_id == id)
+        m_paint.reset();
+    m_paint_cache.erase(std::remove_if(m_paint_cache.begin(), m_paint_cache.end(),
+                                       [id](const PaintCacheEntry& e) { return e.id == id; }),
+                        m_paint_cache.end());
+}
+
+bool Engine::paint_begin(uint64_t id, int mode)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_paint.reset();
+    ModelObject* o = find_object(id);
+    if (o == nullptr || o->instances.empty())
+        return false;
+    auto session = std::make_unique<PaintSession>();
+    session->object_id = id;
+    session->mode      = mode == PaintColors ? PaintColors : PaintSupports;
+    for (ModelVolume* v : o->volumes) {
+        if (!v->is_model_part())
+            continue;
+        const FacetsAnnotation& facets = paint_facets(*v, session->mode);
+        auto selector = std::make_unique<TriangleSelector>(v->mesh());
+        selector->deserialize(facets.get_data(), false);
+        used_states(facets.get_data(), session->states);
+        session->volumes.push_back(v);
+        session->selectors.push_back(std::move(selector));
+        session->raycasters.push_back(std::make_unique<AABBMesh>(v->mesh()));
+    }
+    if (session->volumes.empty())
+        return false;
+    update_paint_mesh(*session);
+    m_paint = std::move(session);
+    touch_plate();
+    return true;
+}
+
+bool Engine::paint_at(const float camera[3], const float dir[3], float radius, int tool, int state, bool continue_stroke)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    PaintSession* s = m_paint.get();
+    if (s == nullptr)
+        return false;
+    ModelObject* o = find_object(s->object_id);
+    if (o == nullptr || o->instances.empty()) {
+        m_paint.reset();
+        return false;
+    }
+    const Transform3d instance           = o->instances.front()->get_matrix();
+    const Transform3d instance_no_offset = o->instances.front()->get_matrix_no_offset();
+    const Vec3d eye(camera[0], camera[1], camera[2]);
+    const Vec3d ray = Vec3d(dir[0], dir[1], dir[2]).normalized();
+
+    // The closest hit over all model parts, in the hit part's mesh coordinates.
+    int    best = -1;
+    double best_distance = std::numeric_limits<double>::max();
+    Vec3f  hit = Vec3f::Zero();
+    int    facet = -1;
+    for (size_t i = 0; i < s->volumes.size(); ++i) {
+        const Transform3d trafo = instance * s->volumes[i]->get_matrix();
+        const Transform3d inv   = trafo.inverse();
+        const AABBMesh::hit_result h = s->raycasters[i]->query_ray_hit(inv * eye, (inv.linear() * ray).normalized());
+        if (!h.is_hit())
+            continue;
+        const double distance = (trafo * h.position() - eye).norm();
+        if (distance < best_distance) {
+            best_distance = distance;
+            best  = int(i);
+            hit   = h.position().cast<float>();
+            facet = h.face();
+        }
+    }
+    if (best < 0) {
+        s->last_volume = -1;
+        return false;
+    }
+    if (!s->stroke) {
+        // Remember the painting before this stroke for undo.
+        std::vector<TriangleSelector::TriangleSplittingData> before;
+        for (const auto& selector : s->selectors)
+            before.push_back(selector->serialize());
+        s->undo.push_back(std::move(before));
+        if (s->undo.size() > 30)
+            s->undo.erase(s->undo.begin());
+        s->stroke = true;
+    }
+
+    TriangleSelector&       selector           = *s->selectors[best];
+    const ModelVolume&      volume             = *s->volumes[best];
+    const Transform3d       trafo              = instance * volume.get_matrix();
+    const Transform3d       trafo_no_translate = instance_no_offset * volume.get_matrix_no_offset();
+    const Vec3f             camera_in_mesh     = (trafo.inverse() * eye).cast<float>();
+    const TriangleSelector::ClippingPlane no_clipping;
+    const TriangleStateType new_state = TriangleStateType(std::clamp(state, 0, 16));
+    if (tool == PaintFill) {
+        selector.seed_fill_select_triangles(hit, facet, trafo_no_translate, no_clipping, 30.f, 0.02f, 0.f,
+                                            TriangleSelector::ForceReselection::YES);
+        selector.seed_fill_apply_on_triangles(new_state);
+    } else if (continue_stroke && s->last_volume == best) {
+        // A capsule from the previous dab, so fast strokes leave no gaps.
+        selector.select_patch(s->last_facet, TriangleSelector::DoublePointCursor::cursor_factory(
+                                  s->last_hit, hit, camera_in_mesh, radius, TriangleSelector::CursorType::CIRCLE, trafo, no_clipping),
+                              new_state, trafo_no_translate, true);
+    } else {
+        selector.select_patch(facet, TriangleSelector::SinglePointCursor::cursor_factory(
+                                  hit, camera_in_mesh, radius, TriangleSelector::CursorType::CIRCLE, trafo, no_clipping),
+                              new_state, trafo_no_translate, true);
+    }
+    s->last_volume = best;
+    s->last_hit    = hit;
+    s->last_facet  = facet;
+    if (state > 0)
+        s->states.insert(state);
+    update_paint_mesh(*s);
+    touch_plate();
+    return true;
+}
+
+void Engine::paint_commit()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    PaintSession* s = m_paint.get();
+    if (s == nullptr)
+        return;
+    for (size_t i = 0; i < s->volumes.size(); ++i)
+        paint_facets(*s->volumes[i], s->mode).set(*s->selectors[i]);
+    s->stroke      = false;
+    s->last_volume = -1;
+    touch_plate();
+}
+
+void Engine::paint_cancel_stroke()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    PaintSession* s = m_paint.get();
+    if (s == nullptr || !s->stroke)
+        return;
+    for (size_t i = 0; i < s->selectors.size(); ++i)
+        s->selectors[i]->deserialize(s->undo.back()[i], true);
+    s->undo.pop_back();
+    s->stroke      = false;
+    s->last_volume = -1;
+    update_paint_mesh(*s);
+    touch_plate();
+}
+
+bool Engine::paint_undo()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    PaintSession* s = m_paint.get();
+    if (s == nullptr || s->stroke || s->undo.empty())
+        return false;
+    for (size_t i = 0; i < s->selectors.size(); ++i) {
+        s->selectors[i]->deserialize(s->undo.back()[i], true);
+        paint_facets(*s->volumes[i], s->mode).set(*s->selectors[i]);
+    }
+    s->undo.pop_back();
+    update_paint_mesh(*s);
+    touch_plate();
+    return true;
+}
+
+void Engine::paint_clear()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    PaintSession* s = m_paint.get();
+    if (s == nullptr || s->stroke)
+        return;
+    std::vector<TriangleSelector::TriangleSplittingData> before;
+    for (const auto& selector : s->selectors)
+        before.push_back(selector->serialize());
+    s->undo.push_back(std::move(before));
+    for (size_t i = 0; i < s->selectors.size(); ++i) {
+        s->selectors[i]->reset();
+        paint_facets(*s->volumes[i], s->mode).set(*s->selectors[i]);
+    }
+    update_paint_mesh(*s);
+    touch_plate();
+}
+
+void Engine::paint_end()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (PaintSession* s = m_paint.get(); s != nullptr && s->stroke)
+        for (size_t i = 0; i < s->volumes.size(); ++i)
+            paint_facets(*s->volumes[i], s->mode).set(*s->selectors[i]);
+    m_paint.reset();
+    touch_plate();
+}
+
+std::string Engine::paint_state_json()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const PaintSession* s = m_paint.get();
+    if (s == nullptr)
+        return json{ {"active", false} }.dump();
+    return json{
+        {"active", true},
+        {"object", s->object_id},
+        {"mode", s->mode},
+        {"can_undo", !s->undo.empty()},
+        {"painted", s->mesh != nullptr},
+    }.dump();
 }
 
 // ------------------------------------------------------------------- slicing

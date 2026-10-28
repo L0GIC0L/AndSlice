@@ -37,6 +37,23 @@ struct MeshData {
     std::vector<std::array<uint32_t, 2>> parts;
 };
 
+// What a paint session paints on an object's surface.
+enum PaintMode {
+    PaintSupports = 0, // states: 1 enforce supports, 2 block supports
+    PaintColors   = 1, // states: n paints with extruder (ACE slot) n
+};
+enum PaintTool {
+    PaintBrush = 0, // circle brush
+    PaintFill  = 1, // smart fill of the connected area within 30° of the touched facet
+};
+
+// Painted facets of an object in object coordinates, for the renderer.
+struct PaintMesh {
+    int                                  mode = PaintSupports;
+    std::vector<float>                   positions; // x, y, z; three vertices per triangle, grouped by state
+    std::vector<std::array<uint32_t, 3>> groups;    // {state, first vertex, vertex count}
+};
+
 // One object on the plate as the renderer and the thumbnail generator see it.
 struct PlateObject {
     uint64_t                         id = 0;
@@ -45,6 +62,7 @@ struct PlateObject {
     bool                             selected = false;
     bool                             outside  = false;
     std::vector<int>                 part_extruders; // 1-based extruder of each mesh part
+    std::shared_ptr<const PaintMesh> paint;          // painted facets to draw over the mesh, or null
 };
 
 // Footprint of the wipe (prime) tower on the bed; empty when no tower is printed.
@@ -132,6 +150,24 @@ public:
     // Returns the id of the closest object hit by the world-space ray, or -1.
     int64_t     pick(const float origin[3], const float dir[3]);
 
+    // ---------------------------------------------------------------- painting
+    // Starts painting an object's model parts in the given PaintMode, with PrusaSlicer's
+    // TriangleSelector, as its support and multi-material painting gizmos do.
+    bool        paint_begin(uint64_t id, int mode);
+    // Paints where the world-space ray from the camera position first hits the object. State 0 erases.
+    // With PaintBrush, `continue_stroke` joins this dab to the previous one of the stroke.
+    // Returns whether the object was hit.
+    bool        paint_at(const float camera[3], const float dir[3], float radius, int tool, int state, bool continue_stroke);
+    // Ends the stroke and stores the painting in the model, where slicing uses it.
+    void        paint_commit();
+    // Takes back the stroke in progress, e.g. when a second finger turns it into a camera gesture.
+    void        paint_cancel_stroke();
+    bool        paint_undo();
+    void        paint_clear();
+    void        paint_end();
+    // {"active": bool, "object": id, "mode": int, "can_undo": bool, "painted": bool}
+    std::string paint_state_json();
+
     // Monotonic counter bumped by every plate change, so the renderer knows when to re-read.
     uint64_t                 plate_revision() const { return m_plate_revision.load(); }
     std::vector<PlateObject> plate_snapshot();
@@ -157,6 +193,10 @@ private:
     void                       place_new_objects(size_t first_new);
     void                       touch_plate();
     std::shared_ptr<const MeshData> mesh_for(const Slic3r::ModelObject& object);
+    std::shared_ptr<const PaintMesh> color_paint_for(const Slic3r::ModelObject& object);
+    struct PaintSession;
+    void                       update_paint_mesh(PaintSession& session);
+    void                       end_paint_of(uint64_t id);
 
     mutable std::mutex                     m_mutex;        // guards everything below except m_print
     std::unique_ptr<Slic3r::PresetBundle>  m_bundle;
@@ -168,6 +208,14 @@ private:
     WipeTowerShape                         m_wipe_tower;
     std::vector<std::pair<uint64_t, std::shared_ptr<const MeshData>>> m_meshes;
     std::atomic<uint64_t>                  m_plate_revision{1};
+    std::unique_ptr<PaintSession>          m_paint;
+    // Filament painting of objects that are not being painted: {object id, paint timestamp, mesh}.
+    struct PaintCacheEntry {
+        uint64_t                         id = 0;
+        uint64_t                         stamp = 0;
+        std::shared_ptr<const PaintMesh> mesh;
+    };
+    std::vector<PaintCacheEntry>           m_paint_cache;
 
     std::mutex                             m_slice_mutex;  // one slice at a time
     std::atomic<Slic3r::Print*>            m_print{nullptr};

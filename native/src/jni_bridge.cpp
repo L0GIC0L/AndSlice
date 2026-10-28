@@ -270,6 +270,54 @@ JNIEXPORT jfloatArray JNICALL FN(wipeTowerPosition)(JNIEnv* env, jobject)
     }, (jfloatArray) nullptr);
 }
 
+// ------------------------------------------------------------------- painting
+
+JNIEXPORT jboolean JNICALL FN(paintBegin)(JNIEnv* env, jobject, jlong id, jint mode)
+{
+    return guarded(env, [&] { return jboolean(Engine::get().paint_begin(uint64_t(id), mode)); }, jboolean(false));
+}
+
+JNIEXPORT jboolean JNICALL FN(paintAt)(JNIEnv* env, jobject, jfloatArray camera, jfloatArray dir, jfloat radius,
+                                      jint tool, jint state, jboolean continue_stroke)
+{
+    return guarded(env, [&] {
+        float c[3], d[3];
+        env->GetFloatArrayRegion(camera, 0, 3, c);
+        env->GetFloatArrayRegion(dir, 0, 3, d);
+        return jboolean(Engine::get().paint_at(c, d, radius, tool, state, continue_stroke));
+    }, jboolean(false));
+}
+
+JNIEXPORT void JNICALL FN(paintCommit)(JNIEnv* env, jobject)
+{
+    guarded_void(env, [&] { Engine::get().paint_commit(); });
+}
+
+JNIEXPORT void JNICALL FN(paintCancelStroke)(JNIEnv* env, jobject)
+{
+    guarded_void(env, [&] { Engine::get().paint_cancel_stroke(); });
+}
+
+JNIEXPORT jboolean JNICALL FN(paintUndo)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return jboolean(Engine::get().paint_undo()); }, jboolean(false));
+}
+
+JNIEXPORT void JNICALL FN(paintClear)(JNIEnv* env, jobject)
+{
+    guarded_void(env, [&] { Engine::get().paint_clear(); });
+}
+
+JNIEXPORT void JNICALL FN(paintEnd)(JNIEnv* env, jobject)
+{
+    guarded_void(env, [&] { Engine::get().paint_end(); });
+}
+
+JNIEXPORT jstring JNICALL FN(paintStateJson)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().paint_state_json()); }, (jstring) nullptr);
+}
+
 // ------------------------------------------------------------------- slicing
 
 JNIEXPORT jstring JNICALL FN(slice)(JNIEnv* env, jobject, jstring printer, jstring print, jobjectArray filaments,

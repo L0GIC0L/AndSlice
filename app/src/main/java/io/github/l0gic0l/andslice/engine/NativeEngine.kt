@@ -57,6 +57,24 @@ object NativeEngine {
     /** Wipe tower {x, y}; arranging may move it. */
     external fun wipeTowerPosition(): FloatArray
 
+    // Painting (PrusaSlicer's TriangleSelector); see PaintMode for modes and states.
+    /** Starts painting the object's surface in [mode] ([PaintMode.SUPPORTS] or [PaintMode.COLORS]). */
+    external fun paintBegin(id: Long, mode: Int): Boolean
+    /**
+     * Paints [state] (0 erases) where the ray from [camera] along [dir] hits the object, with a brush of
+     * [radius] mm or, for [PaintMode.TOOL_FILL], a smart fill. Returns whether the object was hit.
+     */
+    external fun paintAt(camera: FloatArray, dir: FloatArray, radius: Float, tool: Int, state: Int, continueStroke: Boolean): Boolean
+    /** Ends the stroke and stores the painting where slicing reads it. */
+    external fun paintCommit()
+    /** Takes back the stroke in progress. */
+    external fun paintCancelStroke()
+    external fun paintUndo(): Boolean
+    external fun paintClear()
+    external fun paintEnd()
+    /** {"active", "object", "mode", "can_undo", "painted"} */
+    external fun paintStateJson(): String
+
     // Slicing
     external fun slice(
         printer: String,

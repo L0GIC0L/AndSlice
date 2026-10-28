@@ -69,8 +69,10 @@ data class PlateObject(
     /** 1-based extruder of the object; parts may use their own. */
     val extruder: Int = 1,
     val parts: List<ObjectPart> = emptyList(),
-    /** Has multi-material painting (from a 3MF project), which picks its own filaments. */
+    /** Has multi-material painting, which picks its own filaments. */
     val painted: Boolean = false,
+    /** Has painted support enforcers or blockers. */
+    val supportPainted: Boolean = false,
 ) {
     /** Extruders that print this object. */
     val extruders: Set<Int> get() = parts.map { it.extruder }.toSet().ifEmpty { setOf(extruder) }
@@ -104,6 +106,7 @@ data class PlateObject(
                         }
                     } ?: emptyList(),
                     painted = o.optBoolean("painted"),
+                    supportPainted = o.optBoolean("support_painted"),
                 )
             }
         }
@@ -295,3 +298,35 @@ object PreviewOption {
 
 private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
 private fun JSONArray.doubles(): List<Double> = (0 until length()).map { getDouble(it) }
+
+/** Paint modes, tools and support states of [NativeEngine.paintAt]; filament states are the 1-based extruder. */
+object PaintMode {
+    const val SUPPORTS = 0
+    const val COLORS = 1
+
+    const val TOOL_BRUSH = 0
+    const val TOOL_FILL = 1
+
+    const val ERASE = 0
+    const val ENFORCE = 1
+    const val BLOCK = 2
+}
+
+/** State of the paint session, from [NativeEngine.paintStateJson]. */
+data class PaintState(val active: Boolean = false, val objectId: Long = -1, val mode: Int = 0, val canUndo: Boolean = false, val painted: Boolean = false) {
+    companion object {
+        fun parse(json: String): PaintState {
+            val o = JSONObject(json)
+            return PaintState(
+                active = o.optBoolean("active"),
+                objectId = o.optLong("object", -1),
+                mode = o.optInt("mode"),
+                canUndo = o.optBoolean("can_undo"),
+                painted = o.optBoolean("painted"),
+            )
+        }
+    }
+}
+
+/** What a touch on the object paints while painting: [state] with [tool], [radius] mm wide. */
+data class PaintBrush(val state: Int, val radius: Float, val tool: Int)

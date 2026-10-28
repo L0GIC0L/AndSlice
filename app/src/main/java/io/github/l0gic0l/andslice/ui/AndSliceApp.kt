@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
@@ -236,6 +237,8 @@ private fun SlicerScreen(
     }
     val preview = vm.mode == ViewMode.Preview
     BackHandler(enabled = preview) { vm.showPlate() }
+    BackHandler(enabled = vm.transformOpen) { vm.transformOpen = false }
+    BackHandler(enabled = vm.paintMode != null) { vm.stopPainting() }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -304,7 +307,7 @@ private fun SlicerScreen(
         },
         floatingActionButton = {
             AnimatedVisibility(
-                visible = !preview && vm.objects.isNotEmpty() && !vm.slicing,
+                visible = !preview && vm.objects.isNotEmpty() && !vm.slicing && vm.paintMode == null && !vm.transformOpen,
                 enter = scaleIn() + fadeIn(),
                 exit = scaleOut() + fadeOut(),
             ) {
@@ -331,7 +334,16 @@ private fun SlicerScreen(
                     if (vm.objects.isEmpty() && vm.busyMessage == null) {
                         EmptyPlate(Modifier.align(Alignment.Center), onImport = { openModels.launch(arrayOf("*/*")) })
                     }
-                    vm.selectedObject?.let { ObjectToolbar(vm, it, Modifier.align(Alignment.TopCenter).padding(12.dp)) }
+                    vm.selectedObject?.let { obj ->
+                        val panel = Modifier.align(Alignment.BottomCenter).padding(12.dp).widthIn(max = 560.dp).fillMaxWidth()
+                        when {
+                            vm.paintMode != null -> PaintPanel(vm, panel)
+                            else -> {
+                                ObjectToolbar(vm, obj, Modifier.align(Alignment.TopCenter).padding(12.dp))
+                                if (vm.transformOpen) TransformPanel(vm, obj, panel)
+                            }
+                        }
+                    }
                     if (vm.result != null && vm.selectedObject == null) {
                         PreviewShortcut(vm, Modifier.align(Alignment.BottomStart).padding(16.dp))
                     }

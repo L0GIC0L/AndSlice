@@ -22,21 +22,23 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BorderOuter
-import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Park
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilterChip
@@ -71,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.l0gic0l.andslice.PrinterViewModel
 import io.github.l0gic0l.andslice.SlicerViewModel
+import io.github.l0gic0l.andslice.engine.PaintMode
 import io.github.l0gic0l.andslice.engine.PlateObject
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -180,7 +183,11 @@ fun PlateBottomBar(vm: SlicerViewModel, printers: PrinterViewModel, onAddPrinter
     when (sheet) {
         "supports" -> ChoiceSheet("Supports", SUPPORT_CHOICES, supportsChoice(vm), onDismiss = { sheet = null }) { choice ->
             vm.setOverride("support_material", if (choice == "off") "0" else "1")
-            if (choice != "off") vm.setOverride("support_material_buildplate_only", if (choice == "plate") "1" else "0")
+            if (choice != "off") {
+                // PrusaSlicer's "For support enforcers only": no automatic supports, only the painted ones.
+                vm.setOverride("support_material_auto", if (choice == "painted") "0" else "1")
+                vm.setOverride("support_material_buildplate_only", if (choice == "plate") "1" else "0")
+            }
         }
         "infill" -> InfillSheet(vm, onDismiss = { sheet = null })
     }
@@ -229,10 +236,12 @@ private val SUPPORT_CHOICES = listOf(
     Choice("off", "No supports"),
     Choice("plate", "Supports on plate", "Only where supports can stand on the bed"),
     Choice("all", "Supports everywhere", "Also on top of the model"),
+    Choice("painted", "Only where painted", "Paint supports on a selected object with the brush"),
 )
 
 private fun supportsChoice(vm: SlicerViewModel) = when {
     vm.value("support_material") != "1" -> "off"
+    vm.value("support_material_auto") == "0" -> "painted"
     vm.value("support_material_buildplate_only") == "1" -> "plate"
     else -> "all"
 }
@@ -278,8 +287,8 @@ private fun InfillSheet(vm: SlicerViewModel, onDismiss: () -> Unit) {
 /** Floating toolbar for the selected object. */
 @Composable
 fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Modifier) {
-    var editing by remember { mutableStateOf(false) }
     var choosingFilament by remember { mutableStateOf(false) }
+    var paintMenu by remember { mutableStateOf(false) }
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Surface(
             shape = RoundedCornerShape(16.dp),
@@ -305,6 +314,9 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
             shadowElevation = 6.dp,
         ) {
             Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                FilledIconToggleButton(checked = vm.transformOpen, onCheckedChange = { vm.transformOpen = it }) {
+                    Icon(Icons.Default.OpenWith, "Move, rotate, scale")
+                }
                 FilledIconToggleButton(checked = vm.layFaceMode, onCheckedChange = { vm.toggleLayFaceMode() }) {
                     Icon(Icons.Default.FlipToBack, "Lay on face")
                 }
@@ -314,60 +326,30 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
                         SlotDot(vm.slotColors.getOrElse((slot ?: 1) - 1) { "#808080" }, slot, 24.dp)
                     }
                 }
-                IconButton(onClick = { vm.rotateSelected(2, 90.0) }) { Icon(Icons.AutoMirrored.Filled.RotateRight, "Rotate 90°") }
-                IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Move, rotate, scale") }
-                IconButton(onClick = vm::centerSelected) { Icon(Icons.Default.CenterFocusStrong, "Center") }
+                Box {
+                    IconButton(onClick = {
+                        // Single-filament printers can only paint supports.
+                        if (vm.multiMaterial) paintMenu = true else vm.startPainting(PaintMode.SUPPORTS)
+                    }) { Icon(Icons.Default.Brush, "Paint") }
+                    DropdownMenu(expanded = paintMenu, onDismissRequest = { paintMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Paint supports") },
+                            leadingIcon = { Icon(Icons.Default.Park, null) },
+                            onClick = { paintMenu = false; vm.startPainting(PaintMode.SUPPORTS) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Paint filaments") },
+                            leadingIcon = { Icon(Icons.Default.Palette, null) },
+                            onClick = { paintMenu = false; vm.startPainting(PaintMode.COLORS) },
+                        )
+                    }
+                }
                 IconButton(onClick = vm::duplicateSelected) { Icon(Icons.Default.ContentCopy, "Duplicate") }
                 IconButton(onClick = vm::deleteSelected) { Icon(Icons.Default.Delete, "Delete") }
             }
         }
     }
     if (choosingFilament) ObjectFilamentSheet(vm, obj, onDismiss = { choosingFilament = false })
-    if (editing) TransformDialog(obj, onDismiss = { editing = false }, onApply = { t ->
-        editing = false
-        vm.setTransform(obj.id, t)
-    })
-}
-
-@Composable
-private fun TransformDialog(obj: PlateObject, onDismiss: () -> Unit, onApply: (DoubleArray) -> Unit) {
-    fun fmt(v: Double) = String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')
-    var x by remember { mutableStateOf(fmt(obj.offset[0])) }
-    var y by remember { mutableStateOf(fmt(obj.offset[1])) }
-    var rx by remember { mutableStateOf(fmt(obj.rotation[0])) }
-    var ry by remember { mutableStateOf(fmt(obj.rotation[1])) }
-    var rz by remember { mutableStateOf(fmt(obj.rotation[2])) }
-    var scale by remember { mutableStateOf(fmt(obj.scale[0] * 100)) }
-    val values = listOf(x, y, rx, ry, rz, scale).map { it.replace(',', '.').toDoubleOrNull() }
-    val valid = values.all { it != null } && (values[5] ?: 0.0) > 0.0
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Default.Edit, null) },
-        title = { Text("Position, rotation and scale") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NumberField("X", "mm", x, { x = it }, Modifier.weight(1f))
-                    NumberField("Y", "mm", y, { y = it }, Modifier.weight(1f))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NumberField("X", "°", rx, { rx = it }, Modifier.weight(1f))
-                    NumberField("Y", "°", ry, { ry = it }, Modifier.weight(1f))
-                    NumberField("Z", "°", rz, { rz = it }, Modifier.weight(1f))
-                }
-                NumberField("Scale", "%", scale, { scale = it }, Modifier.fillMaxWidth())
-            }
-        },
-        confirmButton = {
-            TextButton(enabled = valid, onClick = {
-                val v = values.map { it!! }
-                val s = v[5] / 100.0
-                onApply(doubleArrayOf(v[0], v[1], v[2], v[3], v[4], s, s, s))
-            }) { Text("Apply") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 @Composable

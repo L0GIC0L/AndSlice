@@ -10,6 +10,9 @@
 //
 // --filament can be repeated, once per extruder (ACE slot). --extruder assigns
 // the 1-based extruder N to the object with the 0-based index OBJECT.
+// --paint OBJECT=MODE:STATE[:fill] paints the object from straight above its center, as a
+// touch would: MODE is supports or colors, STATE the support type or extruder (0 erases),
+// with an 8 mm brush or, with :fill, a smart fill. :below paints from under the bed instead.
 #include <cstdio>
 #include <cstring>
 #include <iostream>
@@ -39,6 +42,7 @@ int main(int argc, char** argv)
     std::vector<std::string> filaments;
     std::vector<std::pair<std::string, std::string>> overrides;
     std::vector<std::pair<int, int>> extruders;
+    std::vector<std::pair<int, std::string>> paints;
     std::vector<std::string> models;
     bool list = false;
 
@@ -57,6 +61,13 @@ int main(int argc, char** argv)
             if (eq == std::string::npos)
                 return usage();
             extruders.emplace_back(std::stoi(kv.substr(0, eq)), std::stoi(kv.substr(eq + 1)));
+        }
+        else if (a == "--paint") {
+            const std::string kv = next();
+            const size_t eq = kv.find('=');
+            if (eq == std::string::npos)
+                return usage();
+            paints.emplace_back(std::stoi(kv.substr(0, eq)), kv.substr(eq + 1));
         }
         else if (a == "-o")         output = next();
         else if (a == "--list")     list = true;
@@ -125,6 +136,24 @@ int main(int argc, char** argv)
         for (const auto& [index, extruder] : extruders)
             if (index >= 0 && index < int(objects.size()))
                 engine.set_extruder(objects[index]["id"].get<uint64_t>(), -1, extruder);
+        for (const auto& [index, spec] : paints) {
+            if (index < 0 || index >= int(objects.size()))
+                return usage();
+            const json& o = objects[index];
+            const int mode  = spec.rfind("colors", 0) == 0 ? andslice::PaintColors : andslice::PaintSupports;
+            const size_t colon = spec.find(':');
+            const int state = colon == std::string::npos ? 1 : std::stoi(spec.substr(colon + 1));
+            const int tool  = spec.find(":fill") != std::string::npos ? andslice::PaintFill : andslice::PaintBrush;
+            // :below looks up at the object from under the bed.
+            const bool  below     = spec.find(":below") != std::string::npos;
+            const float camera[3] = { o["offset"][0].get<float>(), o["offset"][1].get<float>(), below ? -500.f : 500.f };
+            const float dir[3]    = { 0.f, 0.f, below ? 1.f : -1.f };
+            engine.paint_begin(o["id"].get<uint64_t>(), mode);
+            const bool hit = engine.paint_at(camera, dir, 8.f, tool, state, false);
+            engine.paint_commit();
+            std::cout << "paint " << spec << (hit ? " hit: " : " missed: ") << engine.paint_state_json() << "\n";
+            engine.paint_end();
+        }
         std::cout << "plate: " << engine.objects_json() << "\n";
 
         andslice::SliceRequest req{ printer, print, filaments, overrides, output };

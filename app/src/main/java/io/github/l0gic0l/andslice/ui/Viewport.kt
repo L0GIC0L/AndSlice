@@ -47,6 +47,8 @@ fun Viewport(
             override fun onPreviewInfo(json: String) = vm.onPreviewInfo(PreviewInfo.parse(json))
             override fun wipeTower() = if (vm.wipeTowerVisible) vm.wipeTowerFootprint() else null
             override fun onDragWipeTower(x: Float, y: Float, done: Boolean) = vm.dragWipeTower(x, y, done)
+            override fun paintBrush() = vm.paintBrush
+            override fun onPainted() = vm.onPainted()
         })
     }
 
@@ -139,6 +141,11 @@ fun Viewport(
     }
     LaunchedEffect(vm.renderTick) { view.requestRender() }
     LaunchedEffect(renderScale) { view.renderScale = renderScale }
+    // Painting may need a look at the underside of the object.
+    LaunchedEffect(vm.paintMode != null) {
+        camera.minPitchDeg = if (vm.paintMode != null) -85f else -5f
+        view.publishCamera()
+    }
 
     AndroidView(factory = { view }, modifier = modifier)
 }

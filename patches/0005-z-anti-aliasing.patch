@@ -1,0 +1,369 @@
+diff --git a/src/libslic3r/CMakeLists.txt b/src/libslic3r/CMakeLists.txt
+index 777744b..8396a39 100644
+--- a/src/libslic3r/CMakeLists.txt
++++ b/src/libslic3r/CMakeLists.txt
+@@ -168,6 +168,8 @@ set(SLIC3R_SOURCES
+     GCode/Thumbnails.cpp
+     GCode/Thumbnails.hpp
+     GCode/ConflictChecker.cpp
++    GCode/ContourZ.cpp
++    GCode/ContourZ.hpp
+     GCode/ConflictChecker.hpp
+     GCode/CoolingBuffer.cpp
+     GCode/CoolingBuffer.hpp
+diff --git a/src/libslic3r/GCode.cpp b/src/libslic3r/GCode.cpp
+index 34efce2..c03b991 100644
+--- a/src/libslic3r/GCode.cpp
++++ b/src/libslic3r/GCode.cpp
+@@ -3377,11 +3377,17 @@ double cap_speed(
+ 
+ std::string GCodeGenerator::_extrude(
+     const ExtrusionAttributes       &path_attr,
+-    const Geometry::ArcWelder::Path &path,
++    const Geometry::ArcWelder::Path &original_path,
+     const std::string_view           description,
+     double                           speed,
+     const EmitModifiers             &emit_modifiers)
+ {
++    // Z anti-aliasing: the path follows the top surface through its points' height and flow fractions.
++    Geometry::ArcWelder::Path contoured_path;
++    const bool contoured = m_config.zaa_enabled && !m_config.spiral_vase && m_layer != nullptr &&
++        m_contour_z.contour(*m_layer, path_attr, original_path, m_config.zaa_min_z, m_config.zaa_minimize_perimeter_height, contoured_path);
++    const Geometry::ArcWelder::Path &path = contoured ? contoured_path : original_path;
++
+     std::string gcode;
+     const std::string_view description_bridge = path_attr.role.is_bridge() ? " (bridge)"sv : ""sv;
+ 
+@@ -3403,13 +3409,18 @@ std::string GCodeGenerator::_extrude(
+         comment += description_bridge;
+         comment += " point";
+         const Vec3crd from{to_3d(*this->last_position, scaled(this->m_last_layer_z))};
+-        const Vec3crd to{to_3d(path.front().point, scaled(this->m_last_layer_z + (path.front().height_fraction - 1.0) * path_attr.height))};
++        // A contoured path is reached at the layer height and then entered from above.
++        const double first_height_fraction = contoured ? 1.0 : path.front().height_fraction;
++        const Vec3crd to{to_3d(path.front().point, scaled(this->m_last_layer_z + (first_height_fraction - 1.0) * path_attr.height))};
+         const std::string travel_gcode{this->travel_to(from, to, path_attr.role, comment, [this](){
+             return m_writer.multiple_extruders ? "" : m_label_objects.maybe_change_instance(m_writer);
+         })};
+         gcode += travel_gcode;
+     }
+ 
++    if (contoured && path.front().height_fraction != 1.f)
++        gcode += m_writer.travel_to_z(this->m_last_layer_z + (path.front().height_fraction - 1.0) * path_attr.height, "move down to the contoured surface");
++
+     // compensate retraction
+     gcode += this->unretract();
+ 
+@@ -3628,7 +3639,7 @@ std::string GCodeGenerator::_extrude(
+                 // Extrude line segment.
+                 if (const double line_length = (p - prev).norm(); line_length > 0) {
+                     double extrusion_amount{e_per_mm * line_length * it->e_fraction};
+-                    if (it->height_fraction < 1.0 || std::prev(it)->height_fraction < 1.0) {
++                    if (it->height_fraction != 1.0 || std::prev(it)->height_fraction != 1.0) {
+                         const Vec3d destination{to_3d(p, this->m_last_layer_z + (it->height_fraction - 1) * m_last_height)};
+                         gcode += m_writer.extrude_to_xyz(destination, extrusion_amount);
+                     } else {
+@@ -3661,6 +3672,10 @@ std::string GCodeGenerator::_extrude(
+         gcode += ";_RESET_FAN_SPEED\n";
+     }
+ 
++    // Straight up from a contoured path, so that wiping and traveling never scrape the layer.
++    if (contoured && path.back().height_fraction != 1.f)
++        gcode += m_writer.travel_to_z(this->m_last_layer_z, "back to the layer height after contouring");
++
+     this->last_position = path.back().point;
+     return gcode;
+ }
+diff --git a/src/libslic3r/GCode.hpp b/src/libslic3r/GCode.hpp
+index 7617dc4..77263de 100644
+--- a/src/libslic3r/GCode.hpp
++++ b/src/libslic3r/GCode.hpp
+@@ -26,6 +26,7 @@
+ #include "PrintConfig.hpp"
+ #include "Geometry/ArcWelder.hpp"
+ #include "libslic3r/GCode/AvoidCrossingPerimeters.hpp"
++#include "libslic3r/GCode/ContourZ.hpp"
+ #include "libslic3r/GCode/CoolingBuffer.hpp"
+ #include "libslic3r/GCode/FindReplace.hpp"
+ #include "libslic3r/GCode/GCodeWriter.hpp"
+@@ -434,6 +435,8 @@ private:
+     const Layer*                        m_layer;
+     // m_layer is an object layer and it is being printed over raft surface.
+     bool                                m_object_layer_over_raft;
++    // Z anti-aliasing of top surfaces (zaa_enabled).
++    GCode::ContourZ                     m_contour_z;
+     double                              m_volumetric_speed;
+     // Support for the extrusion role markers. Which marker is active?
+     GCodeExtrusionRole                  m_last_extrusion_role;
+diff --git a/src/libslic3r/GCode/ContourZ.cpp b/src/libslic3r/GCode/ContourZ.cpp
+new file mode 100644
+index 0000000..22e5539
+--- /dev/null
++++ b/src/libslic3r/GCode/ContourZ.cpp
+@@ -0,0 +1,144 @@
++#include "ContourZ.hpp"
++
++#include <algorithm>
++#include <cmath>
++
++#include "libslic3r/AABBMesh.hpp"
++#include "libslic3r/Layer.hpp"
++#include "libslic3r/Model.hpp"
++#include "libslic3r/Print.hpp"
++#include "libslic3r/TriangleMesh.hpp"
++
++namespace Slic3r::GCode {
++
++struct ContourZ::ObjectMesh
++{
++    indexed_triangle_set      its;
++    std::unique_ptr<AABBMesh> raycaster;
++};
++
++ContourZ::ContourZ() = default;
++ContourZ::~ContourZ() = default;
++
++const AABBMesh &ContourZ::mesh(const PrintObject &object)
++{
++    auto it = m_meshes.find(&object);
++    if (it == m_meshes.end()) {
++        // The same transformation the object is sliced with, so mesh Z matches Layer::slice_z.
++        auto mesh = std::make_unique<ObjectMesh>();
++        for (const ModelVolume *volume : object.model_object()->volumes)
++            if (volume->is_model_part()) {
++                indexed_triangle_set part = volume->mesh().its;
++                its_transform(part, object.trafo_centered() * volume->get_matrix(), true);
++                its_merge(mesh->its, part);
++            }
++        mesh->raycaster = std::make_unique<AABBMesh>(mesh->its);
++        it = m_meshes.emplace(&object, std::move(mesh)).first;
++    }
++    return *it->second->raycaster;
++}
++
++bool ContourZ::contour(const Layer &layer, const ExtrusionAttributes &attr, const Geometry::ArcWelder::Path &path,
++                       double min_z, double minimize_perimeter_angle_deg, Geometry::ArcWelder::Path &out)
++{
++    const bool perimeter = attr.role == ExtrusionRole::Perimeter || attr.role == ExtrusionRole::ExternalPerimeter;
++    const bool ironing   = attr.role == ExtrusionRole::Ironing;
++    if (!perimeter && !ironing && attr.role != ExtrusionRole::TopSolidInfill)
++        return false;
++    // Nothing below the first layer to follow, and the path must be plain lines at the layer height.
++    if (layer.lower_layer == nullptr || path.size() < 2 || attr.height <= 0.f)
++        return false;
++    for (const Geometry::ArcWelder::Segment &segment : path)
++        if (!segment.linear() || segment.height_fraction != 1.f || segment.e_fraction != 1.f)
++            return false;
++
++    const AABBMesh &object_mesh = this->mesh(*layer.object());
++    const double height     = layer.height;
++    min_z                   = std::clamp(min_z, 0.01, height);
++    const double max_up     = min_z;
++    const double min_down   = -(height - min_z);
++    // Layer::slice_z is the middle of the layer.
++    const double top        = 0.5 * height;
++    const double half_width = 0.5 * attr.width;
++    const double resolution = 0.1; // mm between the sampled points
++
++    // Offset of the nozzle from the layer top at a point of this layer, in mm.
++    auto offset_at = [&](const Vec2d &p) {
++        const AABBMesh::hit_result hit = object_mesh.query_ray_hit(Vec3d(p.x(), p.y(), layer.slice_z), Vec3d::UnitZ());
++        if (!hit.is_hit())
++            return 0.;
++        double d = hit.distance() - top;
++        if (perimeter && d > min_down && minimize_perimeter_angle_deg > 0.) {
++            // Lower the walls on steep slopes so their edge does not stand out.
++            const double slope = std::acos(std::min(1., std::abs(hit.normal().normalized().z())));
++            if (slope * 180. / M_PI > minimize_perimeter_angle_deg)
++                d = std::max(d - half_width * std::sin(slope), min_down);
++        }
++        if (d < -height || d > max_up + 0.03)
++            // Too far from a top surface: inside the object or under another layer.
++            return 0.;
++        d = std::clamp(d, min_down, max_up);
++        if (perimeter && d > 0.)
++            // Raised walls would show as a seam.
++            d = 0.;
++        return d;
++    };
++
++    out.clear();
++    out.reserve(path.size() * 2);
++    // Points of the original path stay, so its outline does not change; sampled points are
++    // dropped where they lie on the line between their neighbors.
++    std::vector<bool> original;
++    auto add = [&](const Point &point, double d, bool keep) {
++        Geometry::ArcWelder::Segment segment;
++        segment.point           = point;
++        segment.height_fraction = float(1. + d / attr.height);
++        if (out.size() >= 2 && !original.back()) {
++            const Geometry::ArcWelder::Segment &a = out[out.size() - 2], &b = out.back();
++            auto to3d = [&attr](const Geometry::ArcWelder::Segment &s) {
++                return Vec3d(unscaled<double>(s.point.x()), unscaled<double>(s.point.y()), (s.height_fraction - 1.) * attr.height);
++            };
++            const Vec3d pa = to3d(a), pb = to3d(b), pc = to3d(segment);
++            const Vec3d ac = pc - pa;
++            const double len2 = ac.squaredNorm();
++            if (len2 > 0.) {
++                const double t = std::clamp((pb - pa).dot(ac) / len2, 0., 1.);
++                if ((pa + ac * t - pb).squaredNorm() < 1e-6) {
++                    out.back()      = segment;
++                    original.back() = keep;
++                    return;
++                }
++            }
++        }
++        out.push_back(segment);
++        original.push_back(keep);
++    };
++
++    bool contoured = false;
++    {
++        const double d = offset_at(unscaled<double>(path.front().point));
++        contoured |= std::abs(d) > EPSILON;
++        add(path.front().point, d, true);
++    }
++    for (size_t i = 1; i < path.size(); ++i) {
++        const Vec2d a = unscaled<double>(path[i - 1].point);
++        const Vec2d b = unscaled<double>(path[i].point);
++        const int   n = std::max(1, int(std::ceil((b - a).norm() / resolution)));
++        for (int k = 1; k <= n; ++k) {
++            const bool  last  = k == n;
++            const Vec2d p     = last ? b : Vec2d(a + (b - a) * (double(k) / n));
++            const double d    = offset_at(p);
++            contoured |= std::abs(d) > EPSILON;
++            add(last ? path[i].point : Point::new_scale(p.x(), p.y()), d, last);
++        }
++    }
++    if (!contoured)
++        return false;
++
++    // Flow follows the local layer height, averaged over each move. Ironing hardly extrudes, so it keeps its flow.
++    for (size_t i = 1; i < out.size(); ++i)
++        out[i].e_fraction = ironing ? 1.f : 0.5f * (out[i - 1].height_fraction + out[i].height_fraction);
++    return true;
++}
++
++} // namespace Slic3r::GCode
+diff --git a/src/libslic3r/GCode/ContourZ.hpp b/src/libslic3r/GCode/ContourZ.hpp
+new file mode 100644
+index 0000000..df9e247
+--- /dev/null
++++ b/src/libslic3r/GCode/ContourZ.hpp
+@@ -0,0 +1,47 @@
++#ifndef slic3r_GCode_ContourZ_hpp_
++#define slic3r_GCode_ContourZ_hpp_
++
++#include <map>
++#include <memory>
++
++#include "libslic3r/ExtrusionEntity.hpp"
++#include "libslic3r/Geometry/ArcWelder.hpp"
++
++namespace Slic3r {
++
++class AABBMesh;
++class Layer;
++class PrintObject;
++
++namespace GCode {
++
++// Z anti-aliasing: lets top surfaces and the walls under them follow the model's sloped and curved
++// tops instead of the layer plane. Ported from OrcaSlicer's Z contouring (ContourZ.cpp by adob),
++// which raises or lowers every extrusion point to where a vertical ray from the slicing plane hits
++// the object's mesh. Here the offsets go into the per-point height and flow fractions of the smooth
++// path that PrusaSlicer already uses for scarf seams, so only G-code emission needs to know about it.
++class ContourZ
++{
++public:
++    ContourZ();
++    ~ContourZ();
++
++    // Resamples `path` of `layer` and stores the Z offset of every point in its height_fraction
++    // (relative to attr.height) and the matching flow in its e_fraction. Returns false and leaves
++    // `out` unspecified when the path is not changed.
++    bool contour(const Layer &layer, const ExtrusionAttributes &attr, const Geometry::ArcWelder::Path &path,
++                 double min_z, double minimize_perimeter_angle_deg, Geometry::ArcWelder::Path &out);
++
++private:
++    const AABBMesh &mesh(const PrintObject &object);
++
++    // Model parts of each object in the object's slicing coordinates. AABBMesh keeps a pointer
++    // to the triangles, so they live next to it.
++    struct ObjectMesh;
++    std::map<const PrintObject*, std::unique_ptr<ObjectMesh>> m_meshes;
++};
++
++} // namespace GCode
++} // namespace Slic3r
++
++#endif // slic3r_GCode_ContourZ_hpp_
+diff --git a/src/libslic3r/Preset.cpp b/src/libslic3r/Preset.cpp
+index 555d9ce..2bacd57 100644
+--- a/src/libslic3r/Preset.cpp
++++ b/src/libslic3r/Preset.cpp
+@@ -476,6 +476,7 @@ static std::vector<std::string> s_Preset_print_options {
+     "seam_position", "staggered_inner_seams", "seam_gap_distance",
+     "external_perimeters_first", "fill_density", "fill_pattern", "top_fill_pattern", "bottom_fill_pattern",
+     "scarf_seam_placement", "scarf_seam_only_on_smooth", "scarf_seam_start_height", "scarf_seam_entire_loop", "scarf_seam_length", "scarf_seam_max_segment_length", "scarf_seam_on_inner_perimeters",
++    "zaa_enabled", "zaa_min_z", "zaa_minimize_perimeter_height",
+     "infill_every_layers", /*"infill_only_where_needed",*/ "solid_infill_every_layers", "fill_angle", "bridge_angle",
+     "solid_infill_below_area", "only_retract_when_crossing_perimeters", "infill_first",
+     "ironing", "ironing_type", "ironing_flowrate", "ironing_speed", "ironing_spacing",
+diff --git a/src/libslic3r/PrintConfig.cpp b/src/libslic3r/PrintConfig.cpp
+index 5462830..9e01436 100644
+--- a/src/libslic3r/PrintConfig.cpp
++++ b/src/libslic3r/PrintConfig.cpp
+@@ -2993,6 +2993,37 @@ void PrintConfigDef::init_fff_params()
+     def->mode = comAdvanced;
+     def->set_default_value(new ConfigOptionBool(false));
+ 
++    // Z anti-aliasing, after OrcaSlicer's Z contouring (ContourZ.cpp by adob).
++    def = this->add("zaa_enabled", coBool);
++    def->label = L("Z anti-aliasing");
++    def->category = L("Layers and Perimeters");
++    def->tooltip = L("Varies the height of the nozzle along top surfaces and the walls under them, so that "
++                     "curved and sloped tops follow the model instead of showing layer steps. "
++                     "Downward-facing surfaces are not changed.");
++    def->mode = comAdvanced;
++    def->set_default_value(new ConfigOptionBool(false));
++
++    def = this->add("zaa_min_z", coFloat);
++    def->label = L("Minimum local layer height");
++    def->category = L("Layers and Perimeters");
++    def->tooltip = L("Thinnest the material may get where Z anti-aliasing lowers the nozzle. Top infill may also "
++                     "be raised by up to this much above the layer.");
++    def->sidetext = L("mm");
++    def->min = 0.01;
++    def->mode = comExpert;
++    def->set_default_value(new ConfigOptionFloat(0.06));
++
++    def = this->add("zaa_minimize_perimeter_height", coFloat);
++    def->label = L("Lower walls on slopes steeper than");
++    def->category = L("Layers and Perimeters");
++    def->tooltip = L("Walls under top surfaces steeper than this angle are lowered by half their width, which "
++                     "hides their edge on the slope. 0 turns this off.");
++    def->sidetext = L("°");
++    def->min = 0;
++    def->max = 90;
++    def->mode = comExpert;
++    def->set_default_value(new ConfigOptionFloat(35));
++
+ #if 0
+     def = this->add("seam_preferred_direction", coFloat);
+ //    def->gui_type = ConfigOptionDef::GUIType::slider;
+diff --git a/src/libslic3r/PrintConfig.hpp b/src/libslic3r/PrintConfig.hpp
+index 8cb4109..7f4ecbd 100644
+--- a/src/libslic3r/PrintConfig.hpp
++++ b/src/libslic3r/PrintConfig.hpp
+@@ -809,6 +809,10 @@ PRINT_CONFIG_CLASS_DEFINE(
+     ((ConfigOptionFloat,                    scarf_seam_length))
+     ((ConfigOptionFloat,                    scarf_seam_max_segment_length))
+     ((ConfigOptionBool,                     scarf_seam_on_inner_perimeters))
++    // Z anti-aliasing (contouring) of top surfaces, ported from OrcaSlicer.
++    ((ConfigOptionBool,                     zaa_enabled))
++    ((ConfigOptionFloat,                    zaa_min_z))
++    ((ConfigOptionFloat,                    zaa_minimize_perimeter_height))
+ )
+ 
+ PRINT_CONFIG_CLASS_DEFINE(

@@ -15,6 +15,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.l0gic0l.andslice.engine.NativeEngine
 import io.github.l0gic0l.andslice.engine.OptionDefs
+import io.github.l0gic0l.andslice.engine.PaintBrush
+import io.github.l0gic0l.andslice.engine.PaintMode
+import io.github.l0gic0l.andslice.engine.PaintState
 import io.github.l0gic0l.andslice.engine.PlateObject
 import io.github.l0gic0l.andslice.engine.PresetLists
 import io.github.l0gic0l.andslice.engine.PresetType
@@ -24,6 +27,7 @@ import io.github.l0gic0l.andslice.engine.VIEW_TYPE_TOOL
 import io.github.l0gic0l.andslice.printers.PrinterStore
 import io.github.l0gic0l.andslice.printers.SavedPrinter
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -490,7 +494,11 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
                 wipeTowerX = tower[0]
                 wipeTowerY = tower[1]
             }
-            if (objs.none { it.id == selectedId }) selectedId = -1
+            if (objs.none { it.id == selectedId }) {
+                selectedId = -1
+                // The engine ends the paint session of a removed object.
+                paintMode = null
+            }
             if (result != null) resultStale = true
             syncSlots()
             redraw()
@@ -507,6 +515,10 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun select(id: Long) {
         if (mode == ViewMode.Preview) return
+        if (id != selectedId) {
+            stopPainting()
+            transformOpen = false
+        }
         selectedId = id
         NativeEngine.select(id)
         redraw()
@@ -550,6 +562,79 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         val r = obj.rotation.toMutableList()
         r[axis] = (r[axis] + degrees) % 360.0
         setTransform(obj.id, obj.transform(rx = r[0], ry = r[1], rz = r[2]))
+    }
+
+    /** The move, rotate and scale panel is open for the selected object. */
+    var transformOpen by mutableStateOf(false)
+
+    // ------------------------------------------------------------------ painting
+
+    // Paint calls run one at a time in the order they were made, so ending one session and
+    // starting the next cannot overtake each other.
+    private val paintThread = Dispatchers.Default.limitedParallelism(1)
+
+    /** [PaintMode.SUPPORTS] or [PaintMode.COLORS] while the selected object is painted, else null. */
+    var paintMode by mutableStateOf<Int?>(null); private set
+    var paintTool by mutableIntStateOf(PaintMode.TOOL_BRUSH)
+    /** What the brush puts down: a support state, or a 1-based extruder; 0 erases. */
+    var paintState by mutableIntStateOf(PaintMode.ENFORCE)
+    /** Brush radius in mm. */
+    var brushRadius by mutableFloatStateOf(3f)
+    var paintCanUndo by mutableStateOf(false); private set
+
+    /** Brush for the 3D view while painting. */
+    val paintBrush: PaintBrush? get() = paintMode?.let { PaintBrush(paintState, brushRadius, paintTool) }
+
+    fun startPainting(mode: Int) {
+        val obj = selectedObject ?: return
+        layFaceMode = false
+        transformOpen = false
+        // Filament painting starts with a slot the object does not print with yet.
+        paintState = if (mode == PaintMode.COLORS) (1..extruderCount).firstOrNull { it !in obj.extruders } ?: 1 else PaintMode.ENFORCE
+        launchEngine("Preparing the brush…", paintThread) {
+            val ok = NativeEngine.paintBegin(obj.id, mode)
+            withContext(Dispatchers.Main) {
+                paintMode = if (ok) mode else null
+                paintCanUndo = false
+                redraw()
+            }
+        }
+    }
+
+    fun stopPainting() {
+        if (paintMode == null) return
+        paintMode = null
+        launchEngine(dispatcher = paintThread) {
+            NativeEngine.paintEnd()
+            refreshObjects()
+        }
+    }
+
+    /** A stroke was stored in the model. */
+    fun onPainted() {
+        // Painted enforcers only print with supports on; turn on the ones that follow the painting.
+        if (paintMode == PaintMode.SUPPORTS && paintState == PaintMode.ENFORCE && value("support_material") != "1") {
+            setOverride("support_material", "1")
+            setOverride("support_material_auto", "0")
+            message = "Supports now print where you paint them. The Supports chip changes this."
+        }
+        launchEngine(dispatcher = paintThread) { refreshPaint() }
+    }
+
+    fun undoPaint() = launchEngine(dispatcher = paintThread) {
+        NativeEngine.paintUndo()
+        refreshPaint()
+    }
+
+    fun clearPaint() = launchEngine(dispatcher = paintThread) {
+        NativeEngine.paintClear()
+        refreshPaint()
+    }
+
+    private suspend fun refreshPaint() {
+        val state = PaintState.parse(NativeEngine.paintStateJson())
+        withContext(Dispatchers.Main) { paintCanUndo = state.canUndo }
+        refreshObjects()
     }
 
     fun deleteSelected() {
@@ -597,6 +682,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     /** Slices the plate; with [openPreview] the preview opens when it is done. */
     fun slice(context: Context, openPreview: Boolean = true) {
         if (slicing) return
+        stopPainting()
         slicing = true
         sliceProgress = 0
         sliceStatus = "Preparing"
@@ -685,12 +771,12 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ helpers
 
-    private fun launchEngine(busy: String? = null, block: suspend () -> Unit) {
+    private fun launchEngine(busy: String? = null, dispatcher: CoroutineDispatcher = Dispatchers.Default, block: suspend () -> Unit) {
         viewModelScope.launch {
             if (busy != null) busyMessage = busy
             try {
                 engineReady.await()
-                withContext(Dispatchers.Default) { block() }
+                withContext(dispatcher) { block() }
             } catch (t: Throwable) {
                 message = t.message ?: t.toString()
             } finally {
@@ -708,7 +794,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         const val CUSTOM_FILAMENT = "Generic PLA @Template"
         val MODEL_EXTENSIONS = setOf("stl", "3mf", "obj", "amf")
         /** Keys behind the quick settings bar, kept when the print profile changes. */
-        val QUICK_SETTINGS = setOf("support_material", "support_material_buildplate_only", "fill_density", "brim_width")
+        val QUICK_SETTINGS = setOf("support_material", "support_material_auto", "support_material_buildplate_only", "fill_density", "brim_width")
         private const val KEY_PRINTER = "printer"
         private const val KEY_PRINT = "print"
         private const val KEY_FILAMENT = "filament"

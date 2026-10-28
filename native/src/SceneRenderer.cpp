@@ -110,6 +110,7 @@ std::string SceneRenderer::on_surface_created()
 {
     // A new EGL context means every previous GL object is gone.
     m_meshes.clear();
+    m_paints.clear();
     m_bed_vao = m_bed_vbo = 0;
     m_cube_vao = m_cube_vbo = m_cube_ibo = 0;
     m_plate_revision = 0;
@@ -231,6 +232,33 @@ void SceneRenderer::sync_plate()
         gm.index_count = int(o.mesh->indices.size());
         gm.source = o.mesh;
     }
+
+    // Painted facets: uploaded again whenever the engine hands out a new paint mesh.
+    for (auto it = m_paints.begin(); it != m_paints.end();) {
+        const auto o = std::find_if(m_plate.begin(), m_plate.end(), [&](const PlateObject& p) { return p.id == it->first; });
+        if (o != m_plate.end() && o->paint) { ++it; continue; }
+        glDeleteVertexArrays(1, &it->second.vao);
+        glDeleteBuffers(1, &it->second.vbo);
+        it = m_paints.erase(it);
+    }
+    for (const PlateObject& o : m_plate) {
+        if (!o.paint)
+            continue;
+        GpuPaint& gp = m_paints[o.id];
+        if (gp.vao != 0 && gp.source == o.paint)
+            continue;
+        if (gp.vao == 0) {
+            glGenVertexArrays(1, &gp.vao);
+            glGenBuffers(1, &gp.vbo);
+        }
+        glBindVertexArray(gp.vao);
+        glBindBuffer(GL_ARRAY_BUFFER, gp.vbo);
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.paint->positions.size() * sizeof(float)), o.paint->positions.data(), GL_DYNAMIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+        glBindVertexArray(0);
+        gp.source = o.paint;
+    }
 }
 
 void SceneRenderer::sync_preview()
@@ -289,6 +317,35 @@ void SceneRenderer::object_color(const PlateObject& o, int extruder, bool dimmed
     }
 }
 
+// Painted facets over the object, pulled towards the camera so they win the depth test.
+void SceneRenderer::draw_paint(const PlateObject& o, int color_uniform)
+{
+    auto it = m_paints.find(o.id);
+    if (it == m_paints.end() || !it->second.source)
+        return;
+    const PaintMesh& paint = *it->second.source;
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.f, -2.f);
+    glBindVertexArray(it->second.vao);
+    for (const auto& [state, first, count] : paint.groups) {
+        float c[4] = { 1.f, 1.f, 1.f, 1.f };
+        if (paint.mode == PaintColors) {
+            // Single-filament printers ignore filament painting, and so does the view.
+            if (m_extruder_colors.empty())
+                continue;
+            std::copy_n(m_extruder_colors[(state - 1) % m_extruder_colors.size()].data(), 4, c);
+        } else if (state == 1) {
+            // Support enforcers and blockers in PrusaSlicer's blue and red.
+            c[0] = 0.25f; c[1] = 0.55f; c[2] = 1.f;
+        } else {
+            c[0] = 1.f; c[1] = 0.3f; c[2] = 0.3f;
+        }
+        glUniform4fv(color_uniform, 1, c);
+        glDrawArrays(GL_TRIANGLES, GLint(first), GLsizei(count));
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+}
+
 void SceneRenderer::draw_objects(const float viewproj[16], bool dimmed)
 {
     glUseProgram(m_mesh_program);
@@ -315,6 +372,8 @@ void SceneRenderer::draw_objects(const float viewproj[16], bool dimmed)
             glDrawElements(GL_TRIANGLES, GLsizei(parts[i][1]), GL_UNSIGNED_INT,
                            reinterpret_cast<const void*>(uintptr_t(parts[i][0]) * sizeof(uint32_t)));
         }
+        if (!dimmed && o.paint)
+            draw_paint(o, color);
     }
     glBindVertexArray(0);
     if (dimmed) {

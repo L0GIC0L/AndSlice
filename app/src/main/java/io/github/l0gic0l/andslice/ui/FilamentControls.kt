@@ -198,7 +198,7 @@ fun ObjectFilamentSheet(vm: SlicerViewModel, obj: PlateObject, onDismiss: () -> 
             }
             if (obj.painted) {
                 Text(
-                    "Painted areas from the 3MF file keep their own filaments.",
+                    "Painted areas keep their own filaments. Paint more with the brush in the toolbar.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),

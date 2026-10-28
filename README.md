@@ -14,7 +14,12 @@ Android 12+ and light and dark themes.
 
 - Import STL, 3MF, OBJ and AMF files (from the app, or "Open with" / "Share" from other apps)
 - 3D plate view of the 255 × 255 × 260 mm Kobra 3 bed: orbit, pan and zoom; tap to select, drag to move
-- Object tools: lay on face, rotate, move/rotate/scale by numbers, center, duplicate, delete, auto-arrange
+- Object tools: lay on face, duplicate, delete, auto-arrange, and a move / rotate / scale panel with step
+  buttons (0.1 to 10 mm, 1 to 90°), typed values, sizes in mm or scale per axis
+- **Painting** with PrusaSlicer's own painting engine: paint where supports go or must not go, and on the
+  Kobra 3 Combo paint areas in other filaments. Brush with adjustable size or smart fill, undo and clear.
+- **Z anti-aliasing** (Settings → Layers and perimeters), ported from OrcaSlicer: on sloped and curved tops
+  the nozzle follows the model within a layer, which smooths the visible steps
 - Kobra 3 profiles for 0.2, 0.4, 0.6 and 0.8 mm nozzles, with Anycubic's start macro (`G9111`), speeds,
   accelerations and filament presets (PLA, PLA+, PLA High Speed, PLA Matte/Silk/Glow/SE, PETG, ABS, ASA, TPU)
 - **Your printers:** several saved printers, each with its profile, connection and camera. Add one from
@@ -97,7 +102,9 @@ API key is stored in the app's private storage.
    loaded there.
 3. Select an object and tap the colored dot in its toolbar to choose its slot. Objects made of several parts
    (from 3MF, OBJ or AMF files) can have a slot per part. Painted 3MF projects keep their painting.
-4. Slice. The preview opens in the **Filament** view; the prime tower can be dragged on the plate.
+4. To color areas of an object, tap the brush in its toolbar → **Paint filaments**, pick a slot and paint
+   with one finger; drag beside the object to turn it. **Fill** colors a whole area up to its sharp edges.
+5. Slice. The preview opens in the **Filament** view; the prime tower can be dragged on the plate.
 
 Every filament change is a plain `T0`-`T3`. The firmware cuts the filament, swaps it and purges into the
 chute, as with Anycubic Slicer Next, and the prime tower only takes the small purge that follows. Rinkhals
@@ -129,8 +136,10 @@ Repeat the two native steps with `x86_64` for emulator builds.
   `build/native/host/andslice_cli --bundle app/src/main/assets/profiles/AnycubicKobra3.ini -o out/ model.stl`
 - `./gradlew testDebugUnitTest` runs the JVM tests, including the OctoPrint client against a fake server.
 - `./gradlew connectedDebugAndroidTest` runs the on-device tests: a full Kobra 3 slice through the JNI
-  bridge, an app launch test, and the plate screen laid out as on an unfolded foldable. CI runs them on an
-  x86_64 emulator.
+  bridge, filament painting with undo, Z anti-aliasing on a pyramid, an app launch test, and the plate screen
+  laid out as on an unfolded foldable. CI runs them on an x86_64 emulator.
+- The command-line harness also paints (`--paint 0=colors:2`, `--paint 0=supports:1:below`) and takes any
+  option with `--set`, such as `--set zaa_enabled=1`.
 
 ### Release signing
 
@@ -155,7 +164,7 @@ secrets: `ANDSLICE_KEYSTORE_BASE64` (`base64 -w0 release.jks`), `ANDSLICE_KEYSTO
 | `app/src/main/java/.../octoprint/` | OctoPrint and Moonraker clients and network discovery |
 | `app/src/main/java/...` | Compose UI (Material 3), view models, GL view and gestures |
 
-PrusaSlicer's sources are used unmodified apart from four small patches in `patches/`:
+PrusaSlicer's sources are used unmodified apart from five small patches in `patches/`:
 
 - `0001-libvgcode-opengl-es-rgba32f.patch` moves libvgcode's OpenGL ES path to RGBA32F textures, which the
   desktop path already uses since PrusaSlicer issue #12908. Without it, the ES path in 2.9.6 does not compile.
@@ -167,6 +176,12 @@ PrusaSlicer's sources are used unmodified apart from four small patches in `patc
   in firmware. Without it, every tool change would also send `SET_PRESSURE_ADVANCE`.
 - `0004-preset-bundle-public-merge.patch` makes `PresetBundle::merge_presets()` public, so the app can load
   vendor bundles the way PrusaSlicer's own `load_system_presets()` does.
+- `0005-z-anti-aliasing.patch` adds Z anti-aliasing (`zaa_enabled`, `zaa_min_z`,
+  `zaa_minimize_perimeter_height`), after OrcaSlicer's Z contouring (`ContourZ.cpp` by adob): every top
+  surface and wall point is raised or lowered to where a vertical ray from the slicing plane meets the
+  model, with flow scaled to the local layer height. The offsets ride on the per-point height and flow
+  fractions PrusaSlicer already uses for scarf seams, so only G-code output changes. A contoured path is
+  entered and left straight up and down, so travel moves never scrape the layer.
 
 ## Limitations
 
@@ -175,7 +190,9 @@ PrusaSlicer's sources are used unmodified apart from four small patches in `patc
   printing still gets PrusaSlicer's standard extruder-clearance check.
 - No STEP import, since OpenCASCADE is not built.
 - One ACE Pro (four slots). Eight colors with two ACE units are not set up.
-- No multi-material painting on the phone; painted 3MF projects from PrusaSlicer slice as painted.
+- No seam or fuzzy skin painting yet; painted 3MF projects from PrusaSlicer keep theirs.
+- No true non-planar (curved layer) slicing. Z anti-aliasing only bends the top surfaces within a layer, and
+  makes exporting the G-code slower.
 - 64-bit devices only.
 - Network printing to the Kobra 3 needs Moonraker (for example through Rinkhals) or OctoPrint. Anycubic's own
   cloud and LAN protocol are not supported, nor PrusaLink or Bambu printers' own protocols.

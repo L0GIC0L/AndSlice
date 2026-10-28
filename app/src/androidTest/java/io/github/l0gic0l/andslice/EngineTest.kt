@@ -4,6 +4,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.l0gic0l.andslice.engine.NativeEngine
 import io.github.l0gic0l.andslice.engine.OptionDefs
+import io.github.l0gic0l.andslice.engine.PaintMode
+import io.github.l0gic0l.andslice.engine.PaintState
 import io.github.l0gic0l.andslice.engine.PlateObject
 import io.github.l0gic0l.andslice.engine.PresetLists
 import io.github.l0gic0l.andslice.engine.SliceResult
@@ -147,6 +149,75 @@ class EngineTest {
         assertTrue(gcode.contains(Regex("^T1$", RegexOption.MULTILINE)))
         assertTrue(!gcode.contains("SET_PRESSURE_ADVANCE"))
         assertTrue(!gcode.contains(Regex("^M10[49] .*T\\d", RegexOption.MULTILINE)))
+    }
+
+    @Test
+    fun paintsFilamentsAndUndoes() {
+        val combo = "Anycubic Kobra 3 Combo 0.4 nozzle"
+        val lists = PresetLists.parse(NativeEngine.presetsJson(combo))
+        NativeEngine.setPrinter(combo)
+        NativeEngine.setWipeTower(true, floatArrayOf(190f, 215f, 45f, 10f, 5f, 20f))
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+
+        // A dab of filament 2 on top of the cube, as a finger from straight above would paint it.
+        assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.COLORS))
+        val camera = floatArrayOf(cube.offset[0].toFloat(), cube.offset[1].toFloat(), 500f)
+        assertTrue(NativeEngine.paintAt(camera, floatArrayOf(0f, 0f, -1f), 5f, PaintMode.TOOL_BRUSH, 2, false))
+        NativeEngine.paintCommit()
+        assertTrue(PaintState.parse(NativeEngine.paintStateJson()).canUndo)
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().painted)
+
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(
+                combo, lists.defaultPrint, arrayOf("Anycubic PLA @Kobra 3", "Anycubic PLA Matte @Kobra 3"),
+                emptyArray(), emptyArray(), out.path + "/", null,
+            )
+        )
+        assertTrue(result.error ?: "", result.ok)
+        assertTrue(File(result.path!!).readText().contains(Regex("^T1$", RegexOption.MULTILINE)))
+
+        assertTrue(NativeEngine.paintUndo())
+        NativeEngine.paintEnd()
+        assertTrue(!PlateObject.parseList(NativeEngine.objectsJson()).single().painted)
+    }
+
+    @Test
+    fun zAntiAliasingFollowsSlopedTops() {
+        // A pyramid: every layer has a sloped top edge to follow.
+        val stl = File(dir, "pyramid.stl").apply {
+            val tri = listOf(
+                listOf(0.0, 0.0, 0.0, 30.0, 0.0, 0.0, 15.0, 15.0, 12.0),
+                listOf(30.0, 0.0, 0.0, 30.0, 30.0, 0.0, 15.0, 15.0, 12.0),
+                listOf(30.0, 30.0, 0.0, 0.0, 30.0, 0.0, 15.0, 15.0, 12.0),
+                listOf(0.0, 30.0, 0.0, 0.0, 0.0, 0.0, 15.0, 15.0, 12.0),
+                listOf(0.0, 0.0, 0.0, 30.0, 30.0, 0.0, 30.0, 0.0, 0.0),
+                listOf(0.0, 0.0, 0.0, 0.0, 30.0, 0.0, 30.0, 30.0, 0.0),
+            )
+            writeText(buildString {
+                append("solid pyramid\n")
+                for (t in tri) {
+                    append("facet normal 0 0 0\nouter loop\n")
+                    for (i in 0 until 3) append("vertex ${t[3 * i]} ${t[3 * i + 1]} ${t[3 * i + 2]}\n")
+                    append("endloop\nendfacet\n")
+                }
+                append("endsolid pyramid\n")
+            })
+        }
+        NativeEngine.addModel(stl.path, "pyramid")
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(
+                presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament),
+                arrayOf("zaa_enabled"), arrayOf("1"), out.path + "/", null,
+            )
+        )
+        assertTrue(result.error ?: "", result.ok)
+        // Extrusions that also move Z: the nozzle follows the slope within a layer.
+        val contoured = Regex("^G1 X[-\\d.]+ Y[-\\d.]+ Z[-\\d.]+ E", RegexOption.MULTILINE)
+        assertTrue(contoured.containsMatchIn(File(result.path!!).readText()))
     }
 
     private fun cubeStl(size: Double): String {

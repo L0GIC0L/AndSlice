@@ -1,10 +1,12 @@
 package io.github.l0gic0l.andslice
 
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -14,9 +16,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.l0gic0l.andslice.ui.AndSliceApp
 import io.github.l0gic0l.andslice.ui.theme.AndSliceTheme
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import kotlin.math.abs
 
 /** The app laid out as on an unfolded foldable, whatever the test device's screen. */
 @RunWith(AndroidJUnit4::class)
@@ -27,8 +32,7 @@ class LargeScreenTest {
     private fun waitForText(text: String, timeoutMillis: Long = 10_000) =
         compose.waitUntil(timeoutMillis) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
 
-    @Test
-    fun halfPanelShowsSettingsBesideThePlate() {
+    private fun startApp(): SlicerViewModel {
         val models = compose.runOnUiThread { ViewModelProvider(compose.activity) }
         val slicer = compose.runOnUiThread { models[SlicerViewModel::class.java] }
         val printer = compose.runOnUiThread { models[PrinterViewModel::class.java] }
@@ -38,13 +42,51 @@ class LargeScreenTest {
                 AndSliceTheme { AndSliceApp(slicer, printer, prefs) }
             }
         }
-
         waitForText("The plate is empty", timeoutMillis = 30_000)
+        return slicer
+    }
+
+    @Test
+    fun halfPanelShowsSettingsBesideThePlate() {
+        startApp()
         // The navigation rail, with the app preferences at its bottom.
         compose.onNodeWithText("Preferences").assertExists()
         // The slicing settings fill the other half of the plate screen.
         compose.onNodeWithTag("settings-search").assertExists()
         compose.onNodeWithText("Infill").performClick()
         waitForText("Fill density")
+    }
+
+    @Test
+    fun movesByStepsAndPaints() {
+        val slicer = startApp()
+        val stl = File(compose.activity.cacheDir, "cube.stl").apply {
+            writeText(
+                "solid c\n" + listOf(
+                    "0 0 0|10 10 0|10 0 0", "0 0 0|0 10 0|10 10 0", "0 0 10|10 0 10|10 10 10", "0 0 10|10 10 10|0 10 10",
+                    "0 0 0|10 0 0|10 0 10", "0 0 0|10 0 10|0 0 10", "10 0 0|10 10 0|10 10 10", "10 0 0|10 10 10|10 0 10",
+                    "10 10 0|0 10 0|0 10 10", "10 10 0|0 10 10|10 10 10", "0 10 0|0 0 0|0 0 10", "0 10 0|0 0 10|0 10 10",
+                ).joinToString("") { f ->
+                    "facet normal 0 0 0\nouter loop\n" + f.split('|').joinToString("") { "vertex $it\n" } + "endloop\nendfacet\n"
+                } + "endsolid c\n"
+            )
+        }
+        compose.runOnUiThread { slicer.importModels(compose.activity, listOf(Uri.fromFile(stl))) }
+        // Imported objects are selected, which shows their toolbar.
+        compose.waitUntil(30_000) { slicer.selectedObject != null }
+        val x = slicer.selectedObject!!.offset[0]
+
+        // One step of the default 1 mm to the right.
+        compose.onNodeWithContentDescription("Move, rotate, scale").performClick()
+        compose.onNodeWithContentDescription("X +").performClick()
+        compose.waitUntil(10_000) { abs((slicer.selectedObject?.offset?.get(0) ?: x) - (x + 1.0)) < 0.01 }
+        assertEquals(x + 1.0, slicer.selectedObject!!.offset[0], 0.01)
+        compose.onNodeWithContentDescription("Close").performClick()
+
+        // The Kobra 3 has one filament, so the brush goes straight to supports.
+        compose.onNodeWithContentDescription("Paint").performClick()
+        waitForText("Paint supports")
+        compose.onNodeWithText("Done").performClick()
+        compose.waitUntil(10_000) { slicer.paintMode == null }
     }
 }

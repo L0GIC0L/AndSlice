@@ -9,6 +9,9 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import io.github.l0gic0l.andslice.engine.NativeEngine
+import io.github.l0gic0l.andslice.engine.PaintBrush
+import io.github.l0gic0l.andslice.engine.PaintMode
+import java.util.concurrent.atomic.AtomicReference
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
@@ -29,6 +32,10 @@ interface SceneCallbacks {
     fun wipeTower(): FloatArray?
     /** The wipe tower was dragged to (x, y); [done] is true when the finger lifts. */
     fun onDragWipeTower(x: Float, y: Float, done: Boolean)
+    /** Brush while the selected object is being painted, else null. */
+    fun paintBrush(): PaintBrush?
+    /** A paint stroke was stored in the model. */
+    fun onPainted()
 }
 
 /**
@@ -134,6 +141,51 @@ class SceneView(
     private var lastFocusY = 0f
     private var multiTouch = false
 
+    // Painting: a finger that lands on the painted object paints; elsewhere it turns the view.
+    private var painting = false
+    private var paintMoved = false
+    private var downX = 0f
+    private var downY = 0f
+    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+
+    private class PaintDab(val eye: FloatArray, val dir: FloatArray, val brush: PaintBrush, val continueStroke: Boolean)
+
+    // Latest dab waiting for the GL thread; dabs that arrive meanwhile replace it, so slow strokes don't queue up.
+    private val pendingDab = AtomicReference<PaintDab?>(null)
+
+    private fun queueDab(x: Float, y: Float, brush: PaintBrush, continueStroke: Boolean) {
+        val (_, dir) = camera.ray(x, y, width, height)
+        if (pendingDab.getAndSet(PaintDab(camera.eye(), dir, brush, continueStroke)) == null) {
+            queueEvent {
+                val dab = pendingDab.getAndSet(null) ?: return@queueEvent
+                NativeEngine.paintAt(dab.eye, dab.dir, dab.brush.radius, dab.brush.tool, dab.brush.state, dab.continueStroke)
+            }
+        }
+        requestRender()
+    }
+
+    private fun commitStroke() {
+        queueEvent {
+            NativeEngine.paintCommit()
+            mainHandler.post { callbacks.onPainted() }
+        }
+        requestRender()
+    }
+
+    private fun cancelStroke() {
+        queueEvent {
+            pendingDab.set(null)
+            NativeEngine.paintCancelStroke()
+        }
+        requestRender()
+    }
+
+    private fun hitsSelected(x: Float, y: Float): Boolean {
+        val (o, d) = camera.ray(x, y, width, height)
+        val selected = callbacks.selectedId()
+        return selected >= 0 && NativeEngine.pick(o, d) == selected
+    }
+
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             camera.zoom(detector.scaleFactor)
@@ -158,18 +210,33 @@ class SceneView(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        val brush = if (mode == 0) callbacks.paintBrush() else null
         scaleDetector.onTouchEvent(event)
-        tapDetector.onTouchEvent(event)
+        // Taps paint while painting, so they neither select nor zoom.
+        if (brush == null) tapDetector.onTouchEvent(event)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 multiTouch = false
                 lastX = event.x
                 lastY = event.y
-                startObjectDrag(event.x, event.y)
+                if (brush != null) {
+                    painting = hitsSelected(event.x, event.y)
+                    paintMoved = false
+                    downX = event.x
+                    downY = event.y
+                    if (painting && brush.tool == PaintMode.TOOL_BRUSH) queueDab(event.x, event.y, brush, false)
+                } else {
+                    startObjectDrag(event.x, event.y)
+                }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 multiTouch = true
+                // A second finger makes it a camera gesture; take back what the first one painted.
+                if (painting) {
+                    painting = false
+                    if (brush?.tool == PaintMode.TOOL_BRUSH) cancelStroke()
+                }
                 finishObjectDrag()
                 lastFocusX = focusX(event)
                 lastFocusY = focusY(event)
@@ -183,7 +250,10 @@ class SceneView(
                     lastFocusY = fy
                     publishCamera()
                 } else if (!multiTouch) {
-                    if (draggingId >= 0 || draggingTower) {
+                    if (painting && brush != null) {
+                        if (kotlin.math.hypot(event.x - downX, event.y - downY) > touchSlop) paintMoved = true
+                        if (brush.tool == PaintMode.TOOL_BRUSH) queueDab(event.x, event.y, brush, true)
+                    } else if (draggingId >= 0 || draggingTower) {
                         moveObjectDrag(event.x, event.y, done = false)
                     } else {
                         camera.orbit(event.x - lastX, event.y - lastY)
@@ -200,6 +270,16 @@ class SceneView(
                 lastY = event.getY(remaining)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (painting && brush != null) {
+                    painting = false
+                    if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                        cancelStroke()
+                    } else {
+                        // The fill tool fills the area under a tap.
+                        if (brush.tool == PaintMode.TOOL_FILL && !paintMoved) queueDab(event.x, event.y, brush, false)
+                        commitStroke()
+                    }
+                }
                 if (draggingId >= 0 || draggingTower) moveObjectDrag(event.x, event.y, done = true)
                 finishObjectDrag()
             }

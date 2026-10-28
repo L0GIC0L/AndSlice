@@ -30,6 +30,11 @@ TABS = {
 # Pages PrusaSlicer keeps at the end of a tab.
 LAST_PAGES = ["Notes", "Dependencies"]
 
+# Options AndSlice adds to libslic3r (patches/), as (tab, page, group, keys) after the page's groups.
+EXTRA_GROUPS = [
+    ("print", "Layers and perimeters", "Z anti-aliasing", ["zaa_enabled", "zaa_min_z", "zaa_minimize_perimeter_height"]),
+]
+
 AXES = ["x", "y", "z", "e"]
 KEY_FIRST_ARG = re.compile(r'(?:append_single_option_line|get_option|create_single_option_line)\("([a-z0-9_]+)"')
 KEY_SECOND_ARG = re.compile(
@@ -107,6 +112,9 @@ def main():
     lines = source.splitlines()
     overrides = filament_overrides(source)
     layout = {tab: build_tab(lines, sigs, overrides) for tab, sigs in TABS.items()}
+    for tab, page_title, group_title, keys in EXTRA_GROUPS:
+        page = next(p for p in layout[tab] if p["title"] == page_title)
+        page["groups"].append({"title": group_title, "keys": keys})
     with open(output, "w", encoding="utf-8") as f:
         json.dump(layout, f, indent=1)
         f.write("\n")

@@ -38,6 +38,10 @@ private:
         int      index_count = 0;
         std::weak_ptr<const MeshData> source;
     };
+    struct GpuPaint {
+        unsigned vao = 0, vbo = 0;
+        std::shared_ptr<const PaintMesh> source;
+    };
 
     void sync_plate();
     void sync_bed();
@@ -46,12 +50,14 @@ private:
     void draw_objects(const float viewproj[16], bool dimmed);
     void draw_wipe_tower(const float viewproj[16], bool dimmed);
     void object_color(const PlateObject& o, int extruder, bool dimmed, float out[4]) const;
+    void draw_paint(const PlateObject& o, int color_uniform);
 
     unsigned m_mesh_program = 0;
     unsigned m_line_program = 0;
     int      m_width = 1, m_height = 1;
 
     std::map<uint64_t, GpuMesh> m_meshes;
+    std::map<uint64_t, GpuPaint> m_paints;
     std::vector<PlateObject>    m_plate;
     uint64_t                    m_plate_revision = 0;
 

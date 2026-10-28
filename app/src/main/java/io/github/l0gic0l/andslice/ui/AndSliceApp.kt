@@ -76,6 +76,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -245,8 +247,10 @@ private fun AppRail(current: Destination?, preferences: Boolean, onSelect: (Dest
         NavigationRailItem(
             selected = preferences,
             onClick = onPreferences,
-            icon = { Icon(Icons.Default.Settings, "App settings") },
+            icon = { Icon(Icons.Default.Settings, null) },
             label = { Text("App", maxLines = 1) },
+            // The rail hides the icon's description behind its label; say what "App" opens.
+            modifier = Modifier.semantics { contentDescription = "App settings" },
         )
         Spacer(Modifier.height(16.dp))
     }

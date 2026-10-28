@@ -135,10 +135,9 @@ class OctoPrintClientTest {
 
     @Test
     fun reportsUnreachableServer() = runBlocking {
-        val url = server.url
-        server.close()
+        // Port 1 refuses connections; a port just closed could be taken by another test's server.
         try {
-            OctoPrintClient(url, "secret").version()
+            OctoPrintClient("http://127.0.0.1:1", "secret").version()
             fail("expected an error")
         } catch (e: OctoPrintException) {
             assertTrue(e.message!!, e.message!!.startsWith("Cannot reach OctoPrint"))

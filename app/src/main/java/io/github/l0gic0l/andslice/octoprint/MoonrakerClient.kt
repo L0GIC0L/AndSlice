@@ -2,6 +2,7 @@ package io.github.l0gic0l.andslice.octoprint
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.URL
@@ -78,6 +79,63 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
     }
 
     override suspend fun cancel() = withContext(Dispatchers.IO) { command("/printer/print/cancel") }
+
+    override suspend fun files(): List<PrinterFile> = withContext(Dispatchers.IO) {
+        val list = JSONObject(http.request("GET", "/server/files/list?root=gcodes").body).optJSONArray("result") ?: JSONArray()
+        (0 until list.length()).map { list.getJSONObject(it) }
+            .map { f ->
+                PrinterFile(
+                    path = f.optString("path").ifEmpty { f.optString("filename") },
+                    size = f.optLong("size"),
+                    modified = f.optDouble("modified", 0.0).toLong(),
+                )
+            }
+            .filter { it.path.isNotEmpty() && !it.path.startsWith(".") }
+            .sortedByDescending { it.modified }
+    }
+
+    /** The slicer's estimate and the largest thumbnail up to 300 px, from the file's metadata. */
+    override suspend fun fileDetails(file: PrinterFile): PrinterFile = withContext(Dispatchers.IO) {
+        val response = http.execute("GET", "/server/files/metadata?filename=" + URLEncoder.encode(file.path, "UTF-8"))
+        if (response.code !in 200..299) return@withContext file.copy(detailed = true)
+        val meta = result(response)
+        val thumbs = meta.optJSONArray("thumbnails")
+        val thumb = thumbs?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+            ?.filter { it.optInt("width") <= 300 }
+            ?.maxByOrNull { it.optInt("width") }
+            ?.optString("relative_path")?.takeIf { it.isNotEmpty() }
+        val folder = file.path.substringBeforeLast('/', "")
+        file.copy(
+            estimatedSeconds = meta.optDouble("estimated_time").takeUnless { it.isNaN() }?.toLong(),
+            thumbnailUrl = thumb?.let { "$baseUrl/server/files/gcodes/" + encodePath(if (folder.isEmpty()) it else "$folder/$it") },
+            detailed = true,
+        )
+    }
+
+    override suspend fun printFile(path: String) = withContext(Dispatchers.IO) {
+        command("/printer/print/start?filename=" + URLEncoder.encode(path, "UTF-8"))
+    }
+
+    override suspend fun deleteFile(path: String) = withContext(Dispatchers.IO) {
+        val response = http.execute("DELETE", "/server/files/gcodes/" + encodePath(path))
+        if (response.code !in 200..299) throw OctoPrintException(errorMessage(response) ?: "Moonraker answered HTTP ${response.code}.")
+    }
+
+    override suspend fun history(): List<PrintRecord> = withContext(Dispatchers.IO) {
+        // Moonraker without the history component answers 404.
+        val response = http.execute("GET", "/server/history/list?limit=$HISTORY_LIMIT&order=desc")
+        if (response.code !in 200..299) return@withContext emptyList()
+        val jobs = result(response).optJSONArray("jobs") ?: return@withContext emptyList()
+        (0 until jobs.length()).map { jobs.getJSONObject(it) }.map { j ->
+            PrintRecord(
+                path = j.optString("filename"),
+                status = j.optString("status"),
+                started = j.optDouble("start_time", 0.0).toLong(),
+                printSeconds = j.optDouble("print_duration", 0.0).toLong(),
+                exists = j.optBoolean("exists", true),
+            )
+        }
+    }
 
     /**
      * Webcams configured in Moonraker (as Mainsail and Fluidd do), else the usual
@@ -187,6 +245,10 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
     }
 
     private fun JSONObject.heater() = Temperature(optDouble("temperature", 0.0), optDouble("target", 0.0))
+
+    private companion object {
+        const val HISTORY_LIMIT = 30
+    }
 }
 
 /** "G1 X110 Z9.9 F6000" for the given absolute axis targets. */

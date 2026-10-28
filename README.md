@@ -48,6 +48,8 @@ Android 12+ and light and dark themes.
   Rinkhals only needs its IP address.
 - **Printer control:** live camera (MJPEG or snapshots), temperatures and preheat, homing, jogging X/Y/Z,
   fan and motors, a G-code console and an emergency stop
+- **Files on the printer:** the G-code stored on the printer with thumbnails and print times, to print again
+  or delete, and on Moonraker the recent prints with how they ended
 - **Print notifications:** while a print runs, a notification shows its progress, the time left and a camera
   snapshot, with pause and resume, so the app does not need to stay open. When the print ends, fails or is
   canceled, an alert says so, with a last look through the camera.

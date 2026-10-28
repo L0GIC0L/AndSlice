@@ -45,6 +45,21 @@ private class FakeMoonraker {
         r.path == "/printer/print/cancel" && state == "standby" ->
             400 to """{"error":{"code":400,"message":"Print is not active"}}"""
         r.path == "/printer/print/cancel" -> 200 to """{"result":"ok"}"""
+        r.path == "/server/files/list?root=gcodes" -> 200 to """{"result":[
+            {"path":"old.gcode","modified":1000.5,"size":100,"permissions":"rw"},
+            {"path":"parts/new part.gcode","modified":2000.0,"size":2000000,"permissions":"rw"},
+            {"path":".thumbs/old-32x32.png","modified":1000.0,"size":10,"permissions":"rw"}]}"""
+        r.path == "/server/files/metadata?filename=parts%2Fnew+part.gcode" -> 200 to """{"result":{"estimated_time":3725.4,
+            "thumbnails":[{"width":32,"height":32,"relative_path":".thumbs/new part-32x32.png"},
+            {"width":300,"height":300,"relative_path":".thumbs/new part-300x300.png"},
+            {"width":400,"height":400,"relative_path":".thumbs/new part-400x400.png"}]}}"""
+        r.path.startsWith("/server/files/metadata") -> 404 to """{"error":{"message":"Metadata not available"}}"""
+        r.path.startsWith("/printer/print/start?") -> 200 to """{"result":"ok"}"""
+        r.path == "/server/files/gcodes/parts/new%20part.gcode" && r.method == "DELETE" ->
+            200 to """{"result":{"action":"delete_file"}}"""
+        r.path == "/server/history/list?limit=30&order=desc" -> 200 to """{"result":{"count":2,"jobs":[
+            {"filename":"parts/new part.gcode","status":"completed","start_time":1700000000.5,"print_duration":3600.2,"exists":true},
+            {"filename":"gone.gcode","status":"cancelled","start_time":1690000000.0,"print_duration":60.0,"exists":false}]}}"""
         else -> 404 to ""
     }
 }
@@ -86,6 +101,40 @@ class MoonrakerClientTest {
         } finally {
             octoPrint.close()
         }
+    }
+
+    @Test
+    fun listsPrintsAndDeletesFiles() = runBlocking {
+        val client = MoonrakerClient(server.url, "")
+        val files = client.files()
+        // Newest first, without Moonraker's hidden thumbnail folder.
+        assertEquals(listOf("parts/new part.gcode", "old.gcode"), files.map { it.path })
+        assertEquals("new part.gcode", files[0].name)
+        assertEquals(2000L, files[0].modified)
+
+        val detailed = client.fileDetails(files[0])
+        assertTrue(detailed.detailed)
+        assertEquals(3725L, detailed.estimatedSeconds)
+        // The largest thumbnail up to 300 px, next to the file.
+        assertEquals("${server.url}/server/files/gcodes/parts/.thumbs/new%20part-300x300.png", detailed.thumbnailUrl)
+        val plain = client.fileDetails(files[1])
+        assertTrue(plain.detailed)
+        assertNull(plain.thumbnailUrl)
+
+        client.printFile("parts/new part.gcode")
+        assertTrue(server.requests.any { it.method == "POST" && it.path == "/printer/print/start?filename=parts%2Fnew+part.gcode" })
+        client.deleteFile("parts/new part.gcode")
+        assertTrue(server.requests.any { it.method == "DELETE" })
+    }
+
+    @Test
+    fun readsHistory() = runBlocking {
+        val history = MoonrakerClient(server.url, "").history()
+        assertEquals(listOf("completed", "cancelled"), history.map { it.status })
+        assertEquals("new part.gcode", history[0].name)
+        assertEquals(1700000000L, history[0].started)
+        assertEquals(3600L, history[0].printSeconds)
+        assertFalse(history[1].exists)
     }
 
     @Test

@@ -82,6 +82,43 @@ class OctoPrintClient(baseUrl: String, apiKey: String) : PrinterHost {
         http.check(response)
     }
 
+    override suspend fun files(): List<PrinterFile> = withContext(Dispatchers.IO) {
+        val out = mutableListOf<PrinterFile>()
+        fun collect(entries: JSONArray?) {
+            for (i in 0 until (entries?.length() ?: 0)) {
+                val f = entries!!.getJSONObject(i)
+                if (f.optString("type") == "folder") {
+                    collect(f.optJSONArray("children"))
+                } else if (f.optString("type") == "machinecode") {
+                    out += PrinterFile(
+                        path = f.optString("path"),
+                        size = f.optLong("size"),
+                        modified = f.optLong("date"),
+                        estimatedSeconds = f.optJSONObject("gcodeAnalysis")?.optNullableDouble("estimatedPrintTime")?.toLong(),
+                        // Set by the PrusaSlicer Thumbnails plugin.
+                        thumbnailUrl = PrinterHost.resolve("$baseUrl/", f.optString("thumbnail").takeIf { it.isNotEmpty() && it != "null" }),
+                        detailed = true,
+                    )
+                }
+            }
+        }
+        collect(JSONObject(http.request("GET", "/api/files/local?recursive=true").body).optJSONArray("files"))
+        out.sortedByDescending { it.modified }
+    }
+
+    override suspend fun printFile(path: String) {
+        val response = withContext(Dispatchers.IO) {
+            val bytes = JSONObject().put("command", "select").put("print", true).toString().toByteArray()
+            http.execute("POST", "/api/files/local/" + encodePath(path), "application/json", bytes.size.toLong()) { it.write(bytes) }
+        }
+        if (response.code == HttpURLConnection.HTTP_CONFLICT) throw OctoPrintException("The printer is busy or not connected.")
+        http.check(response)
+    }
+
+    override suspend fun deleteFile(path: String) = withContext(Dispatchers.IO) {
+        http.check(http.execute("DELETE", "/api/files/local/" + encodePath(path)))
+    }
+
     override suspend fun pauseOrResume() = jobCommand(JSONObject().put("command", "pause").put("action", "toggle"))
 
     override suspend fun cancel() = jobCommand(JSONObject().put("command", "cancel"))

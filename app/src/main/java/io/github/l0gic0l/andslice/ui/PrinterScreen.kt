@@ -179,6 +179,7 @@ fun PrinterScreen(
                 item(key = "camera") { WebcamCard(printer) }
                 item(key = "status") { StatusCard(printer) }
                 printer.status?.takeIf { it.fileName != null }?.let { status -> item(key = "job") { JobCard(printer, status) } }
+                item(key = "files") { PrinterFilesCard(printer) }
                 item(key = "motion") { MotionCard(printer) }
                 item(key = "console") { ConsoleCard(printer) }
                 item(key = "info") { PrinterInfoCard(printer, active, onRemove = { onRemovePrinter(active) }) }

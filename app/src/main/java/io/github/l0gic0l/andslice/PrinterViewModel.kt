@@ -14,6 +14,8 @@ import io.github.l0gic0l.andslice.octoprint.Heater
 import io.github.l0gic0l.andslice.octoprint.OctoPrintClient
 import io.github.l0gic0l.andslice.octoprint.OctoPrintException
 import io.github.l0gic0l.andslice.octoprint.OctoPrintVersion
+import io.github.l0gic0l.andslice.octoprint.PrintRecord
+import io.github.l0gic0l.andslice.octoprint.PrinterFile
 import io.github.l0gic0l.andslice.octoprint.PrinterHost
 import io.github.l0gic0l.andslice.octoprint.PrinterStatus
 import io.github.l0gic0l.andslice.octoprint.Webcam
@@ -93,6 +95,9 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         webcam = null
         connectionError = null
         testResult = null
+        files = null
+        history = emptyList()
+        filesError = null
     }
 
     fun setActive(id: String) {
@@ -240,6 +245,7 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
                 client().upload(file, print) { p -> uploadProgress = p }
                 message = if (print) "Sent ${file.name} to $name and started the print." else "Uploaded ${file.name} to $name."
                 refreshStatus()
+                if (files != null) loadFiles()
             } catch (e: OctoPrintException) {
                 message = e.message
                 if (print) PrintMonitorService.stop(getApplication())
@@ -252,6 +258,66 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
     fun pauseOrResume() = command { client().pauseOrResume() }
 
     fun cancelPrint() = command { client().cancel() }
+
+    // ------------------------------------------------------------------ files on the printer
+
+    /** G-code on the printer, newest first; null until loaded. */
+    var files by mutableStateOf<List<PrinterFile>?>(null); private set
+    /** Recent prints, newest first (Moonraker only). */
+    var history by mutableStateOf<List<PrintRecord>>(emptyList()); private set
+    var filesError by mutableStateOf<String?>(null); private set
+    var loadingFiles by mutableStateOf(false); private set
+    private val detailsLoading = mutableSetOf<String>()
+
+    fun loadFiles() {
+        if (!configured || loadingFiles) return
+        loadingFiles = true
+        viewModelScope.launch {
+            try {
+                val c = client()
+                val known = files.orEmpty().associateBy { it.path }
+                // Details already looked up stay, unless the file changed.
+                files = c.files().map { f -> known[f.path]?.takeIf { it.modified == f.modified && it.detailed } ?: f }
+                history = c.history()
+                filesError = null
+            } catch (e: OctoPrintException) {
+                filesError = e.message
+            } finally {
+                loadingFiles = false
+            }
+        }
+    }
+
+    /** Looks up a file's estimate and thumbnail once, when it is shown. */
+    fun loadDetails(file: PrinterFile) {
+        if (file.detailed || !detailsLoading.add(file.path)) return
+        viewModelScope.launch {
+            try {
+                val detailed = client().fileDetails(file)
+                files = files?.map { if (it.path == file.path) detailed else it }
+            } catch (e: OctoPrintException) {
+                // The list works without details.
+            } finally {
+                detailsLoading.remove(file.path)
+            }
+        }
+    }
+
+    fun printFile(path: String) = command("Starting ${path.substringAfterLast('/')}…") {
+        followPrint()
+        try {
+            client().printFile(path)
+        } catch (e: OctoPrintException) {
+            PrintMonitorService.stop(getApplication())
+            throw e
+        }
+    }
+
+    fun deleteFile(file: PrinterFile) = command {
+        client().deleteFile(file.path)
+        files = files?.filter { it.path != file.path }
+        message = "Deleted ${file.name}."
+    }
 
     // ------------------------------------------------------------------ machine control
 

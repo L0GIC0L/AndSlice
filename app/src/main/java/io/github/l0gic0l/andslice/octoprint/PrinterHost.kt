@@ -28,6 +28,16 @@ interface PrinterHost {
     suspend fun pauseOrResume()
     suspend fun cancel()
 
+    /** G-code files on the printer, newest first. */
+    suspend fun files(): List<PrinterFile>
+    /** [file] with its estimate and thumbnail filled in, where the server sends those per file. */
+    suspend fun fileDetails(file: PrinterFile): PrinterFile = file.copy(detailed = true)
+    /** Starts printing a file that is on the printer. */
+    suspend fun printFile(path: String)
+    suspend fun deleteFile(path: String)
+    /** Recent prints, newest first; empty when the server keeps no history. */
+    suspend fun history(): List<PrintRecord> = emptyList()
+
     /** The printer's camera as the server knows it, or null. */
     suspend fun webcam(): Webcam?
     suspend fun setTemperature(heater: Heater, celsius: Int)

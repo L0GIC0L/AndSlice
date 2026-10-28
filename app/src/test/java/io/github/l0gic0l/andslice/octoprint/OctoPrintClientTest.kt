@@ -34,6 +34,14 @@ private class FakeOctoPrint {
             r.path == "/api/settings" -> 200 to """{"webcam":{"webcamEnabled":true,"streamUrl":"/webcam/?action=stream",
                 "snapshotUrl":"http://cam.local/snap.jpg","flipH":false,"flipV":true,"rotate90":false}}"""
             r.path.startsWith("/api/printer/") && r.method == "POST" -> 204 to ""
+            r.path == "/api/files/local?recursive=true" -> 200 to """{"files":[
+                {"name":"a.gcode","path":"a.gcode","type":"machinecode","size":10,"date":100,
+                 "gcodeAnalysis":{"estimatedPrintTime":1188.5},"thumbnail":"plugin/prusaslicerthumbnails/thumbnail/a.png?1"},
+                {"name":"stl","path":"model.stl","type":"model","size":5,"date":300},
+                {"name":"parts","path":"parts","type":"folder","children":[
+                    {"name":"b c.gcode","path":"parts/b c.gcode","type":"machinecode","size":20,"date":200}]}]}"""
+            r.path == "/api/files/local/parts/b%20c.gcode" && r.method == "POST" -> 204 to ""
+            r.path == "/api/files/local/parts/b%20c.gcode" && r.method == "DELETE" -> 204 to ""
             else -> 404 to ""
         }
     }
@@ -49,6 +57,24 @@ class OctoPrintClientTest {
 
     @After
     fun tearDown() = server.close()
+
+    @Test
+    fun listsPrintsAndDeletesFiles() = runBlocking {
+        val client = OctoPrintClient(server.url, "secret")
+        val files = client.files()
+        // G-code only, from every folder, newest first.
+        assertEquals(listOf("parts/b c.gcode", "a.gcode"), files.map { it.path })
+        assertEquals(1188L, files[1].estimatedSeconds)
+        assertEquals("${server.url}/plugin/prusaslicerthumbnails/thumbnail/a.png?1", files[1].thumbnailUrl)
+        assertTrue(files.all { it.detailed })
+
+        client.printFile("parts/b c.gcode")
+        val start = server.requests.single { it.method == "POST" && it.path == "/api/files/local/parts/b%20c.gcode" }
+        assertTrue(start.body.contains("\"command\":\"select\"") && start.body.contains("\"print\":true"))
+        client.deleteFile("parts/b c.gcode")
+        assertTrue(server.requests.any { it.method == "DELETE" })
+        assertTrue(client.history().isEmpty())
+    }
 
     @Test
     fun readsVersion() = runBlocking {

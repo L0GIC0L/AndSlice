@@ -108,11 +108,46 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
 
     override suspend fun home() = sendGcode("G28")
 
-    override suspend fun jog(x: Double, y: Double, z: Double) = sendGcode(jogGcode(x, y, z))
+    /**
+     * Moves to an absolute position worked out from where the toolhead is, rather than with a
+     * relative G91 move, which the Kobra 3's firmware answers with HTTP 400. Axes that are not
+     * homed cannot move, so those are refused with a clear message instead.
+     */
+    override suspend fun jog(x: Double, y: Double, z: Double) = withContext(Dispatchers.IO) {
+        val status = result(
+            http.request("GET", "/printer/objects/query?toolhead=position,homed_axes,axis_minimum,axis_maximum&gcode_move=gcode_position")
+        ).optJSONObject("status")
+        val toolhead = status?.optJSONObject("toolhead")
+        val deltas = listOf("X" to x, "Y" to y, "Z" to z)
+        if (toolhead != null && toolhead.has("homed_axes")) {
+            val homed = toolhead.optString("homed_axes").uppercase()
+            val missing = deltas.filter { (axis, d) -> d != 0.0 && axis !in homed }.map { it.first }
+            if (missing.isNotEmpty()) {
+                throw OctoPrintException("Home the printer first: ${missing.joinToString(" and ")} ${if (missing.size == 1) "is" else "are"} not homed.")
+            }
+        }
+        val position = status?.optJSONObject("gcode_move")?.optJSONArray("gcode_position")
+            ?: toolhead?.optJSONArray("position")
+            ?: throw OctoPrintException("Moonraker did not report where the toolhead is.")
+        val min = toolhead?.optJSONArray("axis_minimum")
+        val max = toolhead?.optJSONArray("axis_maximum")
+        val targets = deltas.mapIndexedNotNull { i, (axis, d) ->
+            if (d == 0.0) return@mapIndexedNotNull null
+            var t = position.getDouble(i) + d
+            if (min != null && max != null && min.length() > i && max.length() > i) t = t.coerceIn(min.getDouble(i), max.getDouble(i))
+            axis to t
+        }
+        if (targets.isEmpty()) return@withContext
+        // One command per request, and absolute mode first, so a refused move leaves no relative mode behind.
+        command(scriptPath("G90"), readTimeoutMs = 60_000)
+        command(scriptPath(moveGcode(targets, feed = if (z != 0.0 && x == 0.0 && y == 0.0) 600 else 6000)), readTimeoutMs = 60_000)
+    }
 
     override suspend fun sendGcode(script: String) = withContext(Dispatchers.IO) {
-        command("/printer/gcode/script?script=" + URLEncoder.encode(script, "UTF-8"), readTimeoutMs = 180_000)
+        command(scriptPath(script), readTimeoutMs = 180_000)
     }
+
+    private fun scriptPath(script: String) = "/printer/gcode/script?script=" + URLEncoder.encode(script, "UTF-8")
 
     override suspend fun emergencyStop() = withContext(Dispatchers.IO) { command("/printer/emergency_stop") }
 
@@ -130,19 +165,30 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
 
     private fun result(response: HttpApi.Response): JSONObject = JSONObject(response.body).optJSONObject("result") ?: JSONObject()
 
-    /** Moonraker explains failures as {"error": {"message": ...}}. */
-    private fun errorMessage(response: HttpApi.Response): String? = try {
-        JSONObject(response.body).optJSONObject("error")?.optString("message")?.takeIf { it.isNotEmpty() }
-    } catch (e: Exception) {
-        null
+    /**
+     * Moonraker explains failures as {"error": {"message": ...}}; other servers in front of the
+     * printer may answer with a plain string or text, which is shown as it is.
+     */
+    private fun errorMessage(response: HttpApi.Response): String? {
+        val body = response.body.trim()
+        val json = try {
+            JSONObject(body)
+        } catch (e: Exception) {
+            null
+        }
+        val message = when {
+            json == null -> body
+            json.optJSONObject("error") != null -> json.getJSONObject("error").optString("message")
+            json.has("error") -> json.optString("error")
+            else -> json.optString("message")
+        }
+        return message.takeIf { it.isNotBlank() }?.take(200)
     }
 
     private fun JSONObject.heater() = Temperature(optDouble("temperature", 0.0), optDouble("target", 0.0))
 }
 
 /** Relative move: G91, one G1 (XY at 100 mm/s, Z at 10 mm/s), back to G90. */
-internal fun jogGcode(x: Double, y: Double, z: Double): String {
-    fun axis(name: String, v: Double) = if (v != 0.0) " $name${"%.3f".format(java.util.Locale.US, v).trimEnd('0').trimEnd('.')}" else ""
-    val feed = if (z != 0.0 && x == 0.0 && y == 0.0) 600 else 6000
-    return "G91\nG1${axis("X", x)}${axis("Y", y)}${axis("Z", z)} F$feed\nG90"
-}
+/** "G1 X110 Z9.9 F6000" for the given absolute axis targets. */
+internal fun moveGcode(targets: List<Pair<String, Double>>, feed: Int): String =
+    "G1" + targets.joinToString("") { (axis, v) -> " $axis${"%.3f".format(java.util.Locale.US, v).trimEnd('0').trimEnd('.')}" } + " F$feed"

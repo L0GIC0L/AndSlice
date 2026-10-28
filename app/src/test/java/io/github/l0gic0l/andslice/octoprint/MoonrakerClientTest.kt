@@ -20,6 +20,9 @@ private class FakeMoonraker {
     var klippy = "ready"
     var webcams = "[]"
     var version = "v0.9.3-1"
+    var homed = "xyz"
+    /** Body of a 400 answer to every G-code script, or null to accept them. */
+    var scriptError: String? = null
 
     fun close() = server.close()
 
@@ -30,10 +33,14 @@ private class FakeMoonraker {
             "print_stats":{"state":"$state","filename":"benchy.gcode","print_duration":600.0},
             "virtual_sdcard":{"progress":0.4},
             "extruder":{"temperature":219.6,"target":220.0},
-            "heater_bed":{"temperature":59.9,"target":60.0}}}}"""
+            "heater_bed":{"temperature":59.9,"target":60.0},
+            "toolhead":{"position":[100.0,100.0,10.0,0.0],"homed_axes":"$homed",
+                "axis_minimum":[0.0,0.0,0.0,0.0],"axis_maximum":[250.0,250.0,250.0,0.0]},
+            "gcode_move":{"gcode_position":[100.0,100.0,10.0,0.0]}}}}"""
         r.path == "/server/files/upload" && r.method == "POST" -> 201 to """{"result":{"item":{"path":"cube.gcode"}}}"""
         r.path == "/printer/print/pause" || r.path == "/printer/print/resume" -> 200 to """{"result":"ok"}"""
         r.path == "/server/webcams/list" -> 200 to """{"result":{"webcams":$webcams}}"""
+        r.path.startsWith("/printer/gcode/script") && scriptError != null -> 400 to scriptError!!
         r.path.startsWith("/printer/gcode/script") || r.path == "/printer/emergency_stop" -> 200 to """{"result":"ok"}"""
         r.path == "/printer/print/cancel" && state == "standby" ->
             400 to """{"error":{"code":400,"message":"Print is not active"}}"""
@@ -161,7 +168,46 @@ class MoonrakerClientTest {
         client.jog(z = -0.1)
         val scripts = server.requests.filter { it.path.startsWith("/printer/gcode/script") }
             .map { java.net.URLDecoder.decode(it.path.substringAfter("script="), "UTF-8") }
-        assertEquals(listOf("M140 S60", "G28", "G91\nG1 X10 F6000\nG90", "G91\nG1 Z-0.1 F600\nG90"), scripts)
+        // Jogs are absolute moves from where the toolhead is.
+        assertEquals(listOf("M140 S60", "G28", "G90", "G1 X110 F6000", "G90", "G1 Z9.9 F600"), scripts)
+    }
+
+    @Test
+    fun jogsStayWithinTheAxisLimits() = runBlocking {
+        MoonrakerClient(server.url, "").jog(x = 500.0, y = -500.0)
+        val last = server.requests.last { it.path.startsWith("/printer/gcode/script") }
+        assertEquals("G1 X250 Y0 F6000", java.net.URLDecoder.decode(last.path.substringAfter("script="), "UTF-8"))
+    }
+
+    @Test
+    fun refusesToJogAxesThatAreNotHomed() = runBlocking {
+        server.homed = "z"
+        try {
+            MoonrakerClient(server.url, "").jog(x = 10.0, y = 10.0)
+            fail("jogged an axis that is not homed")
+        } catch (e: OctoPrintException) {
+            assertEquals("Home the printer first: X and Y are not homed.", e.message)
+        }
+        assertTrue(server.requests.none { it.path.startsWith("/printer/gcode/script") })
+    }
+
+    @Test
+    fun showsWhatThePrinterSays() = runBlocking {
+        val client = MoonrakerClient(server.url, "")
+        server.scriptError = """{"error":{"code":400,"message":"Must home axis first: 110.000 100.000 10.000 [0.000]"}}"""
+        try {
+            client.sendGcode("G1 X110")
+            fail("no error")
+        } catch (e: OctoPrintException) {
+            assertEquals("Must home axis first: 110.000 100.000 10.000 [0.000]", e.message)
+        }
+        server.scriptError = "Unknown command: G91"
+        try {
+            client.sendGcode("G91")
+            fail("no error")
+        } catch (e: OctoPrintException) {
+            assertEquals("Unknown command: G91", e.message)
+        }
     }
 
     @Test

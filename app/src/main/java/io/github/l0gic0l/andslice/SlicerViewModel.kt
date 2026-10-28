@@ -452,7 +452,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Assigns a filament slot (1-based) to the whole object, or to one part when [part] >= 0. */
-    fun setObjectExtruder(id: Long, part: Int, extruder: Int) = launchEngine {
+    fun setObjectExtruder(id: Long, part: Int, extruder: Int) = plateChange {
         NativeEngine.setExtruder(id, part, extruder)
         refreshObjects()
     }
@@ -515,6 +515,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun addModelFiles(files: List<File>) {
         if (files.isEmpty()) return
+        NativeEngine.pushUndo()
         var lastIds: List<Long> = emptyList()
         for (file in files) {
             val json = JSONObject(NativeEngine.addModel(file.absolutePath, file.nameWithoutExtension))
@@ -651,6 +652,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun openProjectFile(file: File) {
+        NativeEngine.pushUndo()
         val json = JSONObject(NativeEngine.openProject(file.absolutePath))
         NativeEngine.clearPreview()
         withContext(Dispatchers.Main) {
@@ -746,10 +748,13 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun refreshObjects() {
         val objs = PlateObject.parseList(NativeEngine.objectsJson())
+        val history = JSONObject(NativeEngine.undoStateJson())
         // Placing new objects and arranging move the wipe tower along with them.
         val tower = NativeEngine.wipeTowerPosition()
         withContext(Dispatchers.Main) {
             objects = objs
+            canUndo = history.optBoolean("can_undo")
+            canRedo = history.optBoolean("can_redo")
             if (wipeTowerVisible) {
                 wipeTowerX = tower[0]
                 wipeTowerY = tower[1]
@@ -792,7 +797,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         if (layFaceMode && selectedId >= 0) {
             val target = selectedId
             layFaceMode = false
-            launchEngine {
+            plateChange {
                 if (!NativeEngine.layOnFace(target, origin, dir)) {
                     withContext(Dispatchers.Main) { message = "Tap a face of the selected object." }
                 }
@@ -808,15 +813,25 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         if (layFaceMode) message = "Tap the face that should rest on the bed."
     }
 
+    /** A drag is under way and undo has the plate from before it. */
+    private var dragging = false
+
     /** Live update while dragging; the object list is refreshed when the finger lifts. */
     fun dragObject(id: Long, x: Double, y: Double, done: Boolean) {
         val obj = objects.firstOrNull { it.id == id } ?: return
+        if (!dragging) {
+            NativeEngine.pushUndo()
+            dragging = true
+        }
         NativeEngine.setTransform(id, obj.transform(x = x, y = y))
-        if (done) launchEngine { refreshObjects() }
+        if (done) {
+            dragging = false
+            launchEngine { refreshObjects() }
+        }
         redraw()
     }
 
-    fun setTransform(id: Long, t: DoubleArray) = launchEngine {
+    fun setTransform(id: Long, t: DoubleArray) = plateChange {
         NativeEngine.setTransform(id, t)
         refreshObjects()
     }
@@ -836,7 +851,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     /** Mirrors the selected object along a world axis: 0 X, 1 Y, 2 Z. */
     fun mirrorSelected(axis: Int) {
         val id = selectedId.takeIf { it >= 0 } ?: return
-        launchEngine {
+        plateChange {
             NativeEngine.mirrorObject(id, axis)
             refreshObjects()
         }
@@ -849,7 +864,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     fun splitSelected(intoParts: Boolean) {
         val id = selectedId.takeIf { it >= 0 } ?: return
         stopPainting()
-        launchEngine("Splitting…") {
+        plateChange("Splitting…") {
             val ids = JSONObject(NativeEngine.splitObject(id, intoParts)).getJSONArray("ids")
             refreshObjects()
             withContext(Dispatchers.Main) {
@@ -898,7 +913,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         val lower = cutKeepLower
         val onCut = cutUpperOnCut
         cutOpen = false
-        launchEngine("Cutting…") {
+        plateChange("Cutting…") {
             val ids = JSONObject(NativeEngine.cutObject(id, height, upper, lower, onCut)).getJSONArray("ids")
             NativeEngine.setCutPlane(-1, -1.0)
             refreshObjects()
@@ -919,13 +934,14 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         transformOpen = false
         layFaceMode = false
         if (cutOpen) openCut(false)
-        changeObject {}
+        changeObject(remember = false) {}
     }
 
     /** Runs [block] on the selected object, then reads its settings and the plate back. */
-    private fun changeObject(block: (Long) -> Unit) {
+    private fun changeObject(remember: Boolean = true, block: (Long) -> Unit) {
         val id = selectedId.takeIf { it >= 0 } ?: return
         launchEngine {
+            if (remember) NativeEngine.pushUndo()
             block(id)
             val settings = ObjectSettings.parse(NativeEngine.objectSettingsJson(id))
             withContext(Dispatchers.Main) { if (id == selectedId) objectSettings = settings }
@@ -1054,7 +1070,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteSelected() {
         val id = selectedId.takeIf { it >= 0 } ?: return
-        launchEngine {
+        plateChange {
             NativeEngine.removeObject(id)
             refreshObjects()
         }
@@ -1062,7 +1078,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun duplicateSelected() {
         val id = selectedId.takeIf { it >= 0 } ?: return
-        launchEngine {
+        plateChange {
             val newId = NativeEngine.duplicateObject(id)
             refreshObjects()
             if (newId > 0) selectOnEngine(newId)
@@ -1071,18 +1087,18 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun centerSelected() {
         val id = selectedId.takeIf { it >= 0 } ?: return
-        launchEngine {
+        plateChange {
             NativeEngine.centerObject(id)
             refreshObjects()
         }
     }
 
-    fun arrange() = launchEngine("Arranging…") {
+    fun arrange() = plateChange("Arranging…") {
         NativeEngine.arrange()
         refreshObjects()
     }
 
-    fun clearPlate() = launchEngine {
+    fun clearPlate() = plateChange {
         NativeEngine.clearPlate()
         NativeEngine.clearPreview()
         withContext(Dispatchers.Main) {
@@ -1090,6 +1106,30 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             mode = ViewMode.Plate
         }
         refreshObjects()
+    }
+
+    // ------------------------------------------------------------------ undo
+
+    var canUndo by mutableStateOf(false); private set
+    var canRedo by mutableStateOf(false); private set
+
+    fun undo() = launchEngine { if (NativeEngine.undo()) afterHistory() }
+
+    fun redo() = launchEngine { if (NativeEngine.redo()) afterHistory() }
+
+    private suspend fun afterHistory() {
+        withContext(Dispatchers.Main) {
+            transformOpen = false
+            if (cutOpen) openCut(false)
+        }
+        refreshObjects()
+        if (objectSettingsOpen) changeObject(remember = false) {}
+    }
+
+    /** Runs a change of the plate, which undo can take back. */
+    private fun plateChange(busy: String? = null, block: suspend () -> Unit) = launchEngine(busy) {
+        NativeEngine.pushUndo()
+        block()
     }
 
     // ------------------------------------------------------------------ slicing

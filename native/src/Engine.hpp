@@ -235,6 +235,15 @@ public:
     // {"active": bool, "object": id, "mode": int, "can_undo": bool, "painted": bool}
     std::string paint_state_json();
 
+    // ---------------------------------------------------------------- undo
+    // Remembers the plate before a change the user makes, for undo, and forgets what was undone.
+    // A paint session remembers the plate itself, once something is painted.
+    void        push_undo();
+    bool        undo();
+    bool        redo();
+    // {"can_undo": bool, "can_redo": bool}
+    std::string undo_state_json();
+
     // Monotonic counter bumped by every plate change, so the renderer knows when to re-read.
     uint64_t                 plate_revision() const { return m_plate_revision.load(); }
     std::vector<PlateObject> plate_snapshot();
@@ -262,6 +271,10 @@ private:
     std::shared_ptr<const MeshData> mesh_for(const Slic3r::ModelObject& object);
     std::shared_ptr<const PaintMesh> color_paint_for(const Slic3r::ModelObject& object);
     struct PaintSession;
+    // The plate as undo and redo keep it.
+    struct PlateState;
+    PlateState                 current_state() const;
+    void                       restore_state(PlateState&& state);
     void                       update_paint_mesh(PaintSession& session);
     void                       end_paint_of(uint64_t id);
     void                       update_layer_profiles(const Slic3r::DynamicPrintConfig& config);
@@ -287,6 +300,7 @@ private:
     std::vector<PaintCacheEntry>           m_paint_cache;
     // Variable layer height quality of objects that have it, by object id.
     std::map<uint64_t, float>              m_layer_quality;
+    std::vector<PlateState>                m_undo, m_redo;
 
     std::mutex                             m_slice_mutex;  // one slice at a time
     std::atomic<Slic3r::Print*>            m_print{nullptr};

@@ -23,6 +23,8 @@ Android 12+ and light and dark themes.
 - 3D plate view of the 255 × 255 × 260 mm Kobra 3 bed: orbit, pan and zoom; tap to select, drag to move
 - Object tools: lay on face, duplicate, delete, auto-arrange, and a move / rotate / scale panel with step
   buttons (0.1 to 10 mm, 1 to 90°), typed values, sizes in mm or scale per axis
+- **Undo and redo** for the plate: moves, deletes, imports, cuts, settings per object and whole painting
+  sessions, 30 steps back
 - Mirror along X, Y or Z; split an object into separate objects, or into parts that get their own filament
   slots; and cut an object across at a height shown as a plane, with the upper part turned onto its cut face
 - **Painting** with PrusaSlicer's own painting engine: paint where supports go or must not go, where seams

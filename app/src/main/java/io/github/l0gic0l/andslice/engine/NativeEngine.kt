@@ -65,6 +65,14 @@ object NativeEngine {
     /** Wipe tower {x, y}; arranging may move it. */
     external fun wipeTowerPosition(): FloatArray
 
+    // Undo
+    /** Remembers the plate before a change, for [undo]; forgets what was undone. */
+    external fun pushUndo()
+    external fun undo(): Boolean
+    external fun redo(): Boolean
+    /** {"can_undo", "can_redo"} */
+    external fun undoStateJson(): String
+
     // Per-object settings
     /** Variable layer height at PrusaSlicer's quality/speed factor (0 thinnest layers, 1 thickest); below 0 turns it off. */
     external fun setLayerQuality(id: Long, quality: Float)

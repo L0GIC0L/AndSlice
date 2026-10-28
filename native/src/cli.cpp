@@ -17,6 +17,8 @@
 //
 // --mirror OBJECT=AXIS mirrors along x, y or z; --split OBJECT=objects|parts splits where the mesh is
 // not connected; --cut OBJECT=HEIGHT cuts across at HEIGHT mm, turning the upper part onto its cut face.
+// --undo-check deletes the first object, undoes and redoes that, and paints and undoes the painting,
+// printing the plate after each step; the slice then has the first object back.
 // --adaptive OBJECT=Q gives the object variable layer heights at PrusaSlicer's quality/speed factor Q (0..1).
 // --object-set OBJECT:KEY=VALUE overrides an option for one object, and
 // --range OBJECT:MIN-MAX:KEY=VALUE for one object between two heights.
@@ -56,7 +58,7 @@ int main(int argc, char** argv)
     std::vector<std::pair<int, float>> adaptive;
     std::vector<std::pair<std::string, std::pair<int, std::string>>> edits;
     std::vector<std::string> models;
-    bool list = false;
+    bool list = false, undo_check = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -103,6 +105,7 @@ int main(int argc, char** argv)
         }
         else if (a == "-o")         output = next();
         else if (a == "--list")     list = true;
+        else if (a == "--undo-check") undo_check = true;
         else if (a == "--set") {
             const std::string kv = next();
             const size_t eq = kv.find('=');
@@ -237,6 +240,26 @@ int main(int argc, char** argv)
             if (!exists)
                 engine.edit_height_range(object_id(index), -1., lo, hi);
             engine.set_object_option(object_id(index), lo, spec.substr(colon + 1, eq - colon - 1), spec.substr(eq + 1));
+        }
+        if (undo_check) {
+            auto count = [&engine] { return json::parse(engine.objects_json()).size(); };
+            engine.push_undo();
+            engine.remove_object(object_id(0));
+            std::cout << "undo check: after delete " << count();
+            std::cout << ", undo " << engine.undo() << " -> " << count();
+            std::cout << ", redo " << engine.redo() << " -> " << count();
+            std::cout << ", undo " << engine.undo() << " -> " << count() << " " << engine.undo_state_json();
+            const json first = json::parse(engine.objects_json()).at(0);
+            const float camera[3] = { first["offset"][0].get<float>(), first["offset"][1].get<float>(), 500.f };
+            const float down[3] = { 0.f, 0.f, -1.f };
+            andslice::PaintParams params;
+            params.radius = 8.f;
+            engine.paint_begin(first["id"].get<uint64_t>(), andslice::PaintSupports);
+            engine.paint_at(camera, down, params, false);
+            engine.paint_commit();
+            engine.paint_end();
+            std::cout << ", painted " << json::parse(engine.objects_json()).at(0)["support_painted"].dump();
+            std::cout << ", undo " << engine.undo() << " -> painted " << json::parse(engine.objects_json()).at(0)["support_painted"].dump() << "\n";
         }
         if (!object_sets.empty() || !ranges.empty())
             std::cout << "object settings: " << engine.object_settings_json(object_id(0)).substr(0, 300) << "\n";

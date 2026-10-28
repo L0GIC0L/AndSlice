@@ -7,6 +7,7 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 
 #include <boost/algorithm/string/trim.hpp>
@@ -45,6 +46,16 @@ using namespace Slic3r;
 
 namespace andslice {
 
+// The plate for undo and redo. Copies of the model share the meshes, so they are cheap.
+struct Engine::PlateState {
+    Model                     model;
+    std::map<uint64_t, float> layer_quality;
+    WipeTowerShape            wipe_tower;
+};
+
+// How many changes undo goes back.
+static constexpr size_t UndoLimit = 30;
+
 // An object being painted: a TriangleSelector and a raycaster per model part, as in
 // PrusaSlicer's painting gizmos, plus the undo history of the strokes.
 struct Engine::PaintSession {
@@ -62,6 +73,8 @@ struct Engine::PaintSession {
     float                                          highlight_angle = 0.f;
     std::vector<float>                             highlight;  // overhang triangles, object coordinates
     std::shared_ptr<const PaintMesh>               mesh;
+    // The plate before the session, for the plate's undo once something is painted.
+    std::optional<Engine::PlateState>              before;
 };
 
 Engine& Engine::get()
@@ -89,6 +102,8 @@ void Engine::init(const std::string& data_dir, const std::string& resources_dir,
     m_model->clear_objects();
     m_meshes.clear();
     m_layer_quality.clear();
+    m_undo.clear();
+    m_redo.clear();
     m_selected = -1;
     m_wipe_tower = {};
     touch_plate();
@@ -1059,6 +1074,66 @@ std::vector<PlateObject> Engine::plate_snapshot()
     return out;
 }
 
+// ------------------------------------------------------------------- undo
+
+Engine::PlateState Engine::current_state() const
+{
+    return { *m_model, m_layer_quality, m_wipe_tower };
+}
+
+void Engine::restore_state(PlateState&& state)
+{
+    // The meshes and paint drawn for an id may differ in the other state, e.g. after mirroring.
+    m_paint.reset();
+    m_paint_cache.clear();
+    m_meshes.clear();
+    *m_model        = std::move(state.model);
+    m_layer_quality = std::move(state.layer_quality);
+    m_wipe_tower    = state.wipe_tower;
+    m_cut_plane.visible = false;
+    if (m_selected >= 0 && find_object(uint64_t(m_selected)) == nullptr)
+        m_selected = -1;
+    m_model->update_print_volume_state(build_volume(m_bed));
+    touch_plate();
+}
+
+void Engine::push_undo()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_undo.push_back(current_state());
+    if (m_undo.size() > UndoLimit)
+        m_undo.erase(m_undo.begin());
+    m_redo.clear();
+}
+
+bool Engine::undo()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_undo.empty() || m_paint)
+        return false;
+    m_redo.push_back(current_state());
+    restore_state(std::move(m_undo.back()));
+    m_undo.pop_back();
+    return true;
+}
+
+bool Engine::redo()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_redo.empty() || m_paint)
+        return false;
+    m_undo.push_back(current_state());
+    restore_state(std::move(m_redo.back()));
+    m_redo.pop_back();
+    return true;
+}
+
+std::string Engine::undo_state_json()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return json{ {"can_undo", !m_undo.empty()}, {"can_redo", !m_redo.empty()} }.dump();
+}
+
 // ------------------------------------------------------------------- per-object settings
 
 namespace {
@@ -1450,6 +1525,7 @@ bool Engine::paint_begin(uint64_t id, int mode)
     if (session->volumes.empty())
         return false;
     update_paint_mesh(*session);
+    session->before = current_state();
     m_paint = std::move(session);
     touch_plate();
     return true;
@@ -1667,9 +1743,18 @@ void Engine::paint_clear()
 void Engine::paint_end()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (PaintSession* s = m_paint.get(); s != nullptr && s->stroke)
-        for (size_t i = 0; i < s->volumes.size(); ++i)
-            paint_facets(*s->volumes[i], s->mode).set(*s->selectors[i]);
+    if (PaintSession* s = m_paint.get(); s != nullptr) {
+        if (s->stroke)
+            for (size_t i = 0; i < s->volumes.size(); ++i)
+                paint_facets(*s->volumes[i], s->mode).set(*s->selectors[i]);
+        // The whole session is one step of the plate's undo, if it painted anything.
+        if (!s->undo.empty() && s->before) {
+            m_undo.push_back(std::move(*s->before));
+            if (m_undo.size() > UndoLimit)
+                m_undo.erase(m_undo.begin());
+            m_redo.clear();
+        }
+    }
     m_paint.reset();
     touch_plate();
 }

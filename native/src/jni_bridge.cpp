@@ -300,6 +300,28 @@ JNIEXPORT jfloatArray JNICALL FN(wipeTowerPosition)(JNIEnv* env, jobject)
     }, (jfloatArray) nullptr);
 }
 
+// ------------------------------------------------------------------- undo
+
+JNIEXPORT void JNICALL FN(pushUndo)(JNIEnv* env, jobject)
+{
+    guarded_void(env, [&] { Engine::get().push_undo(); });
+}
+
+JNIEXPORT jboolean JNICALL FN(undo)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return jboolean(Engine::get().undo()); }, jboolean(false));
+}
+
+JNIEXPORT jboolean JNICALL FN(redo)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return jboolean(Engine::get().redo()); }, jboolean(false));
+}
+
+JNIEXPORT jstring JNICALL FN(undoStateJson)(JNIEnv* env, jobject)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().undo_state_json()); }, (jstring) nullptr);
+}
+
 // ------------------------------------------------------------------- per-object settings
 
 JNIEXPORT void JNICALL FN(setLayerQuality)(JNIEnv* env, jobject, jlong id, jfloat quality)

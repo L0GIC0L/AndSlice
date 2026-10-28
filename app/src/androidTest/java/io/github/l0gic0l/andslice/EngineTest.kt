@@ -234,6 +234,31 @@ class EngineTest {
     }
 
     @Test
+    fun undoesAndRedoesPlateChanges() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        NativeEngine.pushUndo()
+        NativeEngine.removeObject(cube.id)
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).isEmpty())
+        assertTrue(NativeEngine.undo())
+        // Back with the same id, as the app knows it.
+        assertEquals(cube.id, PlateObject.parseList(NativeEngine.objectsJson()).single().id)
+        assertTrue(NativeEngine.redo())
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).isEmpty())
+        assertTrue(NativeEngine.undo())
+
+        // A paint session is one step.
+        assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.SUPPORTS))
+        assertTrue(NativeEngine.paintOverhangs(PaintMode.ENFORCE, 45f))
+        NativeEngine.paintEnd()
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+        assertTrue(NativeEngine.undo())
+        assertTrue(!PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+        assertTrue(org.json.JSONObject(NativeEngine.undoStateJson()).getBoolean("can_redo"))
+    }
+
+    @Test
     fun splitsCutsAndMirrors() {
         // Two cubes side by side in one file: one object until it is split.
         val stl = File(dir, "two.stl").apply { writeText("solid two\n" + cubeFacets(10.0) + cubeFacets(10.0, dx = 20.0) + "endsolid two\n") }

@@ -45,6 +45,6 @@ class AppLaunchTest {
         waitForText("The plate is empty")
         compose.onNodeWithContentDescription("More options").performClick()
         compose.onNodeWithText("Preferences").performClick()
-        waitForText("Anti-aliasing")
+        waitForText("Theme")
     }
 }

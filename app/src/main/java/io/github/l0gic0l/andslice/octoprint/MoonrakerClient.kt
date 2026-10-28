@@ -210,6 +210,34 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
 
     override suspend fun emergencyStop() = withContext(Dispatchers.IO) { command("/printer/emergency_stop") }
 
+    /**
+     * Mainsail or Fluidd. Moonraker's own port serves no pages: Rinkhals puts Mainsail on port 4409,
+     * other Klipper setups usually on the default port. The first that answers is used.
+     */
+    override suspend fun webInterface(): String = withContext(Dispatchers.IO) {
+        val url = URL(baseUrl)
+        val candidates = if (url.port == PrinterHost.MOONRAKER_PORT) {
+            listOf("${url.protocol}://${url.host}:$RINKHALS_MAINSAIL_PORT/", "${url.protocol}://${url.host}/")
+        } else {
+            listOf("$baseUrl/", "${url.protocol}://${url.host}:$RINKHALS_MAINSAIL_PORT/")
+        }
+        candidates.firstOrNull(::answers) ?: candidates.first()
+    }
+
+    private fun answers(page: String): Boolean = try {
+        val connection = (URL(page).openConnection() as java.net.HttpURLConnection).apply {
+            connectTimeout = 2_000
+            readTimeout = 3_000
+        }
+        try {
+            connection.responseCode in 200..399
+        } finally {
+            connection.disconnect()
+        }
+    } catch (e: Exception) {
+        false
+    }
+
     /** The web interface's address: the base URL without Moonraker's own port. */
     private fun webRoot(): String {
         val url = URL(baseUrl)
@@ -248,6 +276,7 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
 
     private companion object {
         const val HISTORY_LIMIT = 30
+        const val RINKHALS_MAINSAIL_PORT = 4409
     }
 }
 

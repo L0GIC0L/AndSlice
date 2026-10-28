@@ -22,10 +22,12 @@ data class SavedPrinter(
     val apiKey: String = "",
     /** Camera stream or snapshot address; empty to ask the server. */
     val webcamUrl: String = "",
+    /** Web interface address (Mainsail, Fluidd, OctoPrint); empty to find it. */
+    val webUrl: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("preset", preset).put("bundle", bundle)
-        .put("url", url).put("api_key", apiKey).put("webcam_url", webcamUrl)
+        .put("url", url).put("api_key", apiKey).put("webcam_url", webcamUrl).put("web_url", webUrl)
 
     companion object {
         fun fromJson(o: JSONObject) = SavedPrinter(
@@ -36,6 +38,7 @@ data class SavedPrinter(
             url = o.optString("url"),
             apiKey = o.optString("api_key"),
             webcamUrl = o.optString("webcam_url"),
+            webUrl = o.optString("web_url"),
         )
     }
 }

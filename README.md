@@ -14,6 +14,10 @@ Android 12+ and light and dark themes.
 
 - Import STL, 3MF, OBJ and AMF files, and zip archives of them (from the app, or "Open with" / "Share" from
   other apps). From an archive with several models, you pick the ones to add.
+- **Find models online:** Printables, Thingiverse, MakerWorld, Thangs and Cults in a browser inside the
+  app, with a search box for the chosen site. A downloaded STL, 3MF, OBJ or zip goes on the plate right
+  away, and a copy stays in Downloads/AndSlice. Sites that need an account work after signing in on the
+  site itself (Google sign-in is not available inside apps).
 - **Projects:** save the plate as a 3MF project with its painting, transforms and settings, and open it again
   later, in AndSlice or in PrusaSlicer. The plate is also kept between sessions on its own.
 - 3D plate view of the 255 × 255 × 260 mm Kobra 3 bed: orbit, pan and zoom; tap to select, drag to move
@@ -48,6 +52,8 @@ Android 12+ and light and dark themes.
   Rinkhals only needs its IP address.
 - **Printer control:** live camera (MJPEG or snapshots), temperatures and preheat, homing, jogging X/Y/Z,
   fan and motors, a G-code console and an emergency stop
+- **Web interface:** the printer's Mainsail, Fluidd or OctoPrint page inside the app, or in the browser.
+  For Rinkhals the app finds Mainsail on port 4409.
 - **Files on the printer:** the G-code stored on the printer with thumbnails and print times, to print again
   or delete, and on Moonraker the recent prints with how they ended
 - **Print notifications:** while a print runs, a notification shows its progress, the time left and a camera

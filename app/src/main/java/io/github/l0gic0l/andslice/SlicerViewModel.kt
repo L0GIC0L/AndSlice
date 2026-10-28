@@ -572,6 +572,48 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         return "$base.$guessed"
     }
 
+    // ------------------------------------------------------------------ downloads
+
+    /** The model download in progress: its name and 0..1, or -1 while the size is unknown. */
+    var download by mutableStateOf<Pair<String, Float>?>(null); private set
+
+    /** Downloads a model the browser was asked to save, keeps it in Downloads and puts it on the plate. */
+    fun downloadModel(context: Context, request: DownloadRequest) = receiveModel(context, request.fileName) { dir ->
+        var reported = -2f
+        ModelDownloads.download(request, dir) { p ->
+            // A few updates per second are plenty for a progress bar.
+            if (p < 0f || p - reported >= 0.01f) {
+                reported = p
+                viewModelScope.launch { download = download?.copy(second = p) }
+            }
+        }
+    }
+
+    /** A download a page made itself (a blob), as bytes. */
+    fun receiveDownload(context: Context, fileName: String, bytes: ByteArray) =
+        receiveModel(context, fileName) { dir -> ModelDownloads.saveBytes(bytes, fileName, dir) }
+
+    private fun receiveModel(context: Context, name: String, fetch: (File) -> File) {
+        if (download != null) {
+            message = "Wait until ${download?.first} has downloaded."
+            return
+        }
+        download = name to -1f
+        val app = context.applicationContext
+        viewModelScope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) { fetch(ModelDownloads.newDir(app)) }
+                val kept = withContext(Dispatchers.IO) { ModelDownloads.keep(app, file) }
+                download = null
+                message = "Downloaded ${file.name}" + (kept?.let { " to $it" } ?: "") + "."
+                importFiles(listOf(file))
+            } catch (e: Exception) {
+                download = null
+                message = "Download failed: ${e.message ?: e.toString()}"
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ projects
 
     /** File name for saving the plate as a project. */

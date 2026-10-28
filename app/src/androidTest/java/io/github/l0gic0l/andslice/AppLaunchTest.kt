@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -23,6 +24,8 @@ class AppLaunchTest {
 
     @Test
     fun walksThroughMainScreens() {
+        // The app brings back the plate of the last run; another test may have left objects on it.
+        compose.runOnUiThread { ViewModelProvider(compose.activity)[SlicerViewModel::class.java].clearPlate() }
         waitForText("The plate is empty", timeoutMillis = 30_000)
         compose.onNodeWithText("Import model").assertExists()
 

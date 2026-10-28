@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Print
@@ -118,6 +119,7 @@ fun PrinterScreen(
     onBack: (() -> Unit)?,
     onAddPrinter: () -> Unit,
     onRemovePrinter: (SavedPrinter) -> Unit,
+    onOpenWeb: () -> Unit,
     keepScreenOn: Boolean = false,
 ) {
     val view = LocalView.current
@@ -145,6 +147,7 @@ fun PrinterScreen(
                 title = { PrinterSwitcher(printer, onAddPrinter) },
                 actions = {
                     if (printer.configured && !editing) {
+                        IconButton(onClick = onOpenWeb) { Icon(Icons.Default.Language, "Web interface") }
                         IconButton(onClick = { scope.launch { printer.refreshStatus() } }) { Icon(Icons.Default.Refresh, "Refresh") }
                         IconButton(
                             onClick = { confirmStop = true },
@@ -276,6 +279,7 @@ private fun ConnectionForm(printer: PrinterViewModel, active: SavedPrinter, onDo
     var url by rememberSaveable { mutableStateOf(active.url) }
     var key by rememberSaveable { mutableStateOf(active.apiKey) }
     var webcam by rememberSaveable { mutableStateOf(active.webcamUrl) }
+    var web by rememberSaveable { mutableStateOf(active.webUrl) }
     var showKey by rememberSaveable { mutableStateOf(false) }
 
     ElevatedCard {
@@ -327,6 +331,15 @@ private fun ConnectionForm(printer: PrinterViewModel, active: SavedPrinter, onDo
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
+            OutlinedTextField(
+                value = web,
+                onValueChange = { web = it },
+                label = { Text("Web interface address (optional)") },
+                supportingText = { Text("Mainsail, Fluidd or OctoPrint. Empty: Mainsail on port 4409 with Rinkhals, else the printer's address.") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             printer.testResult?.let { result ->
                 val ok = result.startsWith("Connected")
@@ -358,7 +371,7 @@ private fun ConnectionForm(printer: PrinterViewModel, active: SavedPrinter, onDo
                 Button(
                     onClick = {
                         printer.updatePrinter(active.copy(name = name.trim().ifEmpty { active.name }))
-                        printer.saveConnection(url, key, webcam)
+                        printer.saveConnection(url, key, webcam, web)
                         onDone()
                     },
                 ) { Text("Save") }

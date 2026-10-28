@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.AlertDialog
@@ -95,7 +96,7 @@ import io.github.l0gic0l.andslice.engine.PresetType
 import io.github.l0gic0l.andslice.printers.SavedPrinter
 import io.github.l0gic0l.andslice.ui.scene.OrbitCamera
 
-private enum class Screen { Slicer, Settings, Printer, AddPrinter, Preferences }
+private enum class Screen { Slicer, Settings, Printer, AddPrinter, Preferences, Browser, PrinterWeb }
 
 /** Top-level destinations: a navigation bar on phones, a rail on tablets and foldables. */
 private enum class Destination(val label: String, val icon: ImageVector) {
@@ -124,6 +125,8 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
     val context = LocalContext.current
     // Outlives the 3D view, which is recreated when returning from another screen.
     val camera = remember { OrbitCamera() }
+    // The model browser opens again on the page it was left on.
+    val browser = remember { BrowserMemory() }
 
     // Messages from both view models end up in the same snackbar.
     LaunchedEffect(vm.message) {
@@ -206,6 +209,12 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
             CircularProgressIndicator()
         }
         screen == Screen.AddPrinter -> AddPrinterScreen(vm, printer, onClose = { screen = Screen.Printer })
+        // Web pages get the whole window.
+        screen == Screen.Browser -> ModelBrowserScreen(vm, browser, onClose = { screen = Screen.Slicer })
+        screen == Screen.PrinterWeb -> {
+            LaunchedEffect(printer.activeId) { printer.findWebInterface() }
+            PrinterWebScreen(printer.webUrl, printer.webError, onClose = { screen = Screen.Printer })
+        }
         else -> BoxWithConstraints(Modifier.fillMaxSize()) {
             // Tablets and unfolded foldables get a navigation rail and a side panel, phones a navigation bar.
             val rail = maxWidth >= 600.dp
@@ -242,6 +251,7 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
                                     keepScreenOn = prefs.keepScreenOn,
                                     onAddPrinter = { screen = Screen.AddPrinter },
                                     onRemovePrinter = ::removePrinter,
+                                    onOpenWeb = { screen = Screen.PrinterWeb },
                                 )
                             }
                             Screen.Preferences -> {
@@ -254,6 +264,7 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
                                 onOpenPreferences = { screen = Screen.Preferences },
                                 onOpenPrinter = { navigate(Destination.Printer) },
                                 onAddPrinter = { screen = Screen.AddPrinter },
+                                onFindModels = { screen = Screen.Browser },
                             )
                         }
                     }
@@ -318,6 +329,7 @@ private fun SlicerScreen(
     onOpenPreferences: () -> Unit,
     onOpenPrinter: () -> Unit,
     onAddPrinter: () -> Unit,
+    onFindModels: () -> Unit,
 ) {
     val context = LocalContext.current
     var showAbout by remember { mutableStateOf(false) }
@@ -355,6 +367,7 @@ private fun SlicerScreen(
                 },
                 actions = {
                     if (!preview) {
+                        IconButton(onClick = onFindModels) { Icon(Icons.Default.TravelExplore, "Find models online") }
                         IconButton(onClick = { openModels.launch(arrayOf("*/*")) }) { Icon(Icons.Default.Add, "Import model") }
                     }
                     var menu by remember { mutableStateOf(false) }
@@ -433,7 +446,7 @@ private fun SlicerScreen(
                 }
                 if (!preview) {
                     if (vm.objects.isEmpty() && vm.busyMessage == null) {
-                        EmptyPlate(Modifier.align(Alignment.Center), onImport = { openModels.launch(arrayOf("*/*")) })
+                        EmptyPlate(Modifier.align(Alignment.Center), onImport = { openModels.launch(arrayOf("*/*")) }, onFind = onFindModels)
                     }
                     vm.selectedObject?.let { obj ->
                         val panel = Modifier.align(Alignment.BottomCenter).padding(12.dp).widthIn(max = 560.dp).fillMaxWidth()
@@ -489,7 +502,7 @@ private fun SliceButton(vm: SlicerViewModel, openPreview: Boolean) {
 }
 
 @Composable
-private fun EmptyPlate(modifier: Modifier, onImport: () -> Unit) {
+private fun EmptyPlate(modifier: Modifier, onImport: () -> Unit, onFind: () -> Unit) {
     Surface(
         modifier.padding(32.dp),
         shape = MaterialTheme.shapes.extraLarge,
@@ -515,6 +528,11 @@ private fun EmptyPlate(modifier: Modifier, onImport: () -> Unit) {
                 Icon(Icons.Default.Add, null, Modifier.size(18.dp))
                 Spacer(Modifier.size(8.dp))
                 Text("Import model")
+            }
+            TextButton(onClick = onFind) {
+                Icon(Icons.Default.TravelExplore, null, Modifier.size(18.dp))
+                Spacer(Modifier.size(8.dp))
+                Text("Find models online")
             }
         }
     }

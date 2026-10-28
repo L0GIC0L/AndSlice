@@ -98,6 +98,8 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         files = null
         history = emptyList()
         filesError = null
+        webUrl = null
+        webError = null
     }
 
     fun setActive(id: String) {
@@ -119,7 +121,8 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         val old = printers.firstOrNull { it.id == printer.id } ?: return
         printers = printers.map { if (it.id == printer.id) printer else it }
         store()
-        if (printer.id == activeId && (old.url != printer.url || old.apiKey != printer.apiKey || old.webcamUrl != printer.webcamUrl)) {
+        if (printer.id == activeId && (old.url != printer.url || old.apiKey != printer.apiKey || old.webcamUrl != printer.webcamUrl ||
+                old.webUrl != printer.webUrl)) {
             resetConnection()
         }
     }
@@ -140,19 +143,52 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         active?.let { if (it.preset != preset) updatePrinter(it.copy(preset = preset)) }
     }
 
-    fun saveConnection(newUrl: String, newKey: String, newWebcam: String = active?.webcamUrl.orEmpty()) {
+    fun saveConnection(
+        newUrl: String,
+        newKey: String,
+        newWebcam: String = active?.webcamUrl.orEmpty(),
+        newWeb: String = active?.webUrl.orEmpty(),
+    ) {
         val printer = active ?: return
         updatePrinter(
             printer.copy(
                 url = if (newUrl.isBlank()) "" else OctoPrintClient.normalizeUrl(newUrl),
                 apiKey = newKey.trim(),
                 webcamUrl = newWebcam.trim(),
+                webUrl = if (newWeb.isBlank()) "" else OctoPrintClient.normalizeUrl(newWeb),
             )
         )
         resetConnection()
     }
 
-    fun forgetConnection() = saveConnection("", "", "")
+    fun forgetConnection() = saveConnection("", "", "", "")
+
+    // ------------------------------------------------------------------ web interface
+
+    /** The printer's web interface, once found. */
+    var webUrl by mutableStateOf<String?>(null); private set
+    var webError by mutableStateOf<String?>(null); private set
+
+    /** The address set for the printer, or the one the server's kind suggests. */
+    fun findWebInterface() {
+        if (webUrl != null) return
+        active?.webUrl?.takeIf { it.isNotBlank() }?.let {
+            webUrl = it
+            return
+        }
+        if (!configured) {
+            webError = "Connect the printer first."
+            return
+        }
+        viewModelScope.launch {
+            try {
+                webUrl = client().webInterface()
+                webError = null
+            } catch (e: OctoPrintException) {
+                webError = e.message
+            }
+        }
+    }
 
     // ------------------------------------------------------------------ status
 

@@ -38,6 +38,9 @@ interface PrinterHost {
     /** Recent prints, newest first; empty when the server keeps no history. */
     suspend fun history(): List<PrintRecord> = emptyList()
 
+    /** Address of the server's web interface, to show in a browser. */
+    suspend fun webInterface(): String = "$baseUrl/"
+
     /** The printer's camera as the server knows it, or null. */
     suspend fun webcam(): Webcam?
     suspend fun setTemperature(heater: Heater, celsius: Int)

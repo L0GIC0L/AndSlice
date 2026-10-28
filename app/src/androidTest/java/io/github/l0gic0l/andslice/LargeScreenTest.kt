@@ -34,6 +34,8 @@ class LargeScreenTest {
 
     private fun startApp(): SlicerViewModel {
         val models = compose.runOnUiThread { ViewModelProvider(compose.activity) }
+        // The plate of the last run would come back; start from an empty one.
+        File(compose.activity.filesDir, "plate/plate.3mf").delete()
         val slicer = compose.runOnUiThread { models[SlicerViewModel::class.java] }
         val printer = compose.runOnUiThread { models[PrinterViewModel::class.java] }
         val prefs = compose.runOnUiThread { models[PreferencesViewModel::class.java].apply { sidePanel = PanelMode.Half } }

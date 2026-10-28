@@ -22,6 +22,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BorderOuter
 import androidx.compose.material.icons.filled.Check
@@ -35,6 +36,10 @@ import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Park
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Grain
@@ -47,6 +52,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -384,7 +390,10 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp)) {
                 FilledIconToggleButton(checked = vm.transformOpen, onCheckedChange = {
                     vm.transformOpen = it
-                    if (it) vm.openObjectSettings(false)
+                    if (it) {
+                        vm.openObjectSettings(false)
+                        vm.openCut(false)
+                    }
                 }) {
                     Icon(Icons.Default.OpenWith, "Move, rotate, scale")
                 }
@@ -437,6 +446,30 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
                             text = { Text("Duplicate") },
                             leadingIcon = { Icon(Icons.Default.ContentCopy, null) },
                             onClick = { more = false; vm.duplicateSelected() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Cut…") },
+                            leadingIcon = { Icon(Icons.Default.ContentCut, null) },
+                            onClick = { more = false; vm.openCut(true) },
+                        )
+                        HorizontalDivider()
+                        listOf("Mirror left to right" to 0, "Mirror front to back" to 1, "Turn upside down" to 2).forEach { (label, axis) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                leadingIcon = { Icon(if (axis == 2) Icons.Default.SwapVert else Icons.Default.Flip, null) },
+                                onClick = { more = false; vm.mirrorSelected(axis) },
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Split into objects") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.CallSplit, null) },
+                            onClick = { more = false; vm.splitSelected(intoParts = false) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Split into parts") },
+                            leadingIcon = { Icon(Icons.Default.Category, null) },
+                            onClick = { more = false; vm.splitSelected(intoParts = true) },
                         )
                     }
                 }

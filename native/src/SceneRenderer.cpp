@@ -200,6 +200,7 @@ void SceneRenderer::sync_plate()
     m_plate_revision = rev;
     m_plate = engine.plate_snapshot();
     m_wipe_tower = engine.wipe_tower();
+    m_cut_plane = engine.cut_plane();
     sync_bed();
 
     // Drop meshes of removed objects, upload new ones.
@@ -394,10 +395,8 @@ void SceneRenderer::draw_objects(const float viewproj[16], bool dimmed)
     }
 }
 
-void SceneRenderer::draw_wipe_tower(const float viewproj[16], bool dimmed)
+void SceneRenderer::bind_cube()
 {
-    if (!m_wipe_tower.visible)
-        return;
     if (m_cube_vao == 0) {
         // Unit cube, scaled and moved to the tower's footprint with the model matrix.
         const float v[] = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1 };
@@ -413,8 +412,35 @@ void SceneRenderer::draw_wipe_tower(const float viewproj[16], bool dimmed)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(idx), idx, GL_STATIC_DRAW);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-        glBindVertexArray(0);
     }
+    glBindVertexArray(m_cube_vao);
+}
+
+void SceneRenderer::draw_cut_plane(const float viewproj[16])
+{
+    if (!m_cut_plane.visible)
+        return;
+    const CutPlane& c = m_cut_plane;
+    // A thin slab, so it shows from below as well; the object hides the part inside it.
+    const float model[16] = { c.x1 - c.x0, 0, 0, 0,  0, c.y1 - c.y0, 0, 0,  0, 0, 0.05f, 0,  c.x0, c.y0, c.z - 0.025f, 1 };
+    glUseProgram(m_mesh_program);
+    glUniformMatrix4fv(glGetUniformLocation(m_mesh_program, "u_viewproj"), 1, GL_FALSE, viewproj);
+    glUniformMatrix4fv(glGetUniformLocation(m_mesh_program, "u_model"), 1, GL_FALSE, model);
+    glUniform4f(glGetUniformLocation(m_mesh_program, "u_color"), 1.f, 0.62f, 0.1f, 0.45f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    bind_cube();
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
+void SceneRenderer::draw_wipe_tower(const float viewproj[16], bool dimmed)
+{
+    if (!m_wipe_tower.visible)
+        return;
     const WipeTowerShape& t = m_wipe_tower;
     const float h = std::max(t.height, 1.f);
     const float model[16] = { t.width, 0, 0, 0,  0, t.depth, 0, 0,  0, 0, h, 0,  t.x, t.y, 0, 1 };
@@ -426,7 +452,7 @@ void SceneRenderer::draw_wipe_tower(const float viewproj[16], bool dimmed)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
-    glBindVertexArray(m_cube_vao);
+    bind_cube();
     glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
     glBindVertexArray(0);
     glDepthMask(GL_TRUE);
@@ -474,6 +500,7 @@ void SceneRenderer::draw(const float view[16], const float projection[16], int m
     } else {
         draw_objects(viewproj, false);
         draw_wipe_tower(viewproj, false);
+        draw_cut_plane(viewproj);
     }
 }
 

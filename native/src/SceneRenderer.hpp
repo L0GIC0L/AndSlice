@@ -49,6 +49,9 @@ private:
     void draw_bed(const float viewproj[16]);
     void draw_objects(const float viewproj[16], bool dimmed);
     void draw_wipe_tower(const float viewproj[16], bool dimmed);
+    void draw_cut_plane(const float viewproj[16]);
+    // A unit cube, for the wipe tower and the cut plane.
+    void bind_cube();
     void object_color(const PlateObject& o, int extruder, bool dimmed, float out[4]) const;
     void draw_paint(const PlateObject& o, int color_uniform);
 
@@ -64,6 +67,7 @@ private:
     unsigned m_bed_vao = 0, m_bed_vbo = 0;
     unsigned m_cube_vao = 0, m_cube_vbo = 0, m_cube_ibo = 0;
     WipeTowerShape m_wipe_tower;
+    CutPlane       m_cut_plane;
     std::vector<std::array<float, 4>> m_extruder_colors;
     int      m_bed_fill_first = 0, m_bed_fill_count = 0;
     int      m_bed_grid_first = 0, m_bed_grid_count = 0;

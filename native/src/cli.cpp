@@ -15,6 +15,8 @@
 // an 8 mm brush. Options: fill (smart fill), heightN (a band N mm high), below (paint from
 // under the bed), overhangsN (every overhang tilted less than N degrees, instead of a touch).
 //
+// --mirror OBJECT=AXIS mirrors along x, y or z; --split OBJECT=objects|parts splits where the mesh is
+// not connected; --cut OBJECT=HEIGHT cuts across at HEIGHT mm, turning the upper part onto its cut face.
 // --adaptive OBJECT=Q gives the object variable layer heights at PrusaSlicer's quality/speed factor Q (0..1).
 // --object-set OBJECT:KEY=VALUE overrides an option for one object, and
 // --range OBJECT:MIN-MAX:KEY=VALUE for one object between two heights.
@@ -52,6 +54,7 @@ int main(int argc, char** argv)
     std::vector<std::pair<int, int>> extruders;
     std::vector<std::pair<int, std::string>> paints, object_sets, ranges;
     std::vector<std::pair<int, float>> adaptive;
+    std::vector<std::pair<std::string, std::pair<int, std::string>>> edits;
     std::vector<std::string> models;
     bool list = false;
 
@@ -79,6 +82,13 @@ int main(int argc, char** argv)
             if (eq == std::string::npos)
                 return usage();
             paints.emplace_back(std::stoi(kv.substr(0, eq)), kv.substr(eq + 1));
+        }
+        else if (a == "--mirror" || a == "--split" || a == "--cut") {
+            const std::string spec = next();
+            const size_t eq = spec.find('=');
+            if (eq == std::string::npos)
+                return usage();
+            edits.emplace_back(a, std::make_pair(std::stoi(spec.substr(0, eq)), spec.substr(eq + 1)));
         }
         else if (a == "--adaptive" || a == "--object-set" || a == "--range") {
             const std::string spec = next();
@@ -165,6 +175,16 @@ int main(int argc, char** argv)
         }
         for (const std::string& m : models)
             std::cout << "loaded " << m << ": " << engine.add_model(m, "") << "\n";
+        for (const auto& [what, spec] : edits) {
+            const json now = json::parse(engine.objects_json());
+            const uint64_t id = now.at(size_t(spec.first))["id"].get<uint64_t>();
+            if (what == "--mirror")
+                engine.mirror_object(id, spec.second == "x" ? 0 : spec.second == "y" ? 1 : 2);
+            else if (what == "--split")
+                std::cout << "split: " << engine.split_object(id, spec.second == "parts") << "\n";
+            else
+                std::cout << "cut: " << engine.cut_object(id, std::stod(spec.second), true, true, true) << "\n";
+        }
         const json objects = json::parse(engine.objects_json());
         for (const auto& [index, extruder] : extruders)
             if (index >= 0 && index < int(objects.size()))

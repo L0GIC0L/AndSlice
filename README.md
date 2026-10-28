@@ -23,6 +23,8 @@ Android 12+ and light and dark themes.
 - 3D plate view of the 255 × 255 × 260 mm Kobra 3 bed: orbit, pan and zoom; tap to select, drag to move
 - Object tools: lay on face, duplicate, delete, auto-arrange, and a move / rotate / scale panel with step
   buttons (0.1 to 10 mm, 1 to 90°), typed values, sizes in mm or scale per axis
+- Mirror along X, Y or Z; split an object into separate objects, or into parts that get their own filament
+  slots; and cut an object across at a height shown as a plane, with the upper part turned onto its cut face
 - **Painting** with PrusaSlicer's own painting engine: paint where supports go or must not go, where seams
   go or must not go, walls with fuzzy skin, and on the Kobra 3 Combo areas in other filaments. Tools: a circle or sphere brush of 1-30 mm, smart fill that
   stops at edges sharper than a chosen angle, and height bands (0.1-10 mm) for stripes. For supports:
@@ -168,7 +170,8 @@ Repeat the two native steps with `x86_64` for emulator builds.
 - The command-line harness also paints (`--paint 0=colors:2`, `--paint 0=supports:1:below`), takes any
   option with `--set`, such as `--set zaa_enabled=1`, and saves and opens projects
   (`--save-project plate.3mf`, `--project plate.3mf`). `--adaptive 0=0.5`, `--object-set 0:perimeters=4` and
-  `--range 0:10-20:layer_height=0.1` set variable layer height, object settings and height ranges.
+  `--range 0:10-20:layer_height=0.1` set variable layer height, object settings and height ranges;
+  `--mirror 0=x`, `--split 0=objects` and `--cut 0=12` mirror, split and cut.
 
 ### Release signing
 

@@ -92,6 +92,13 @@ struct WipeTowerShape {
     float height = 0.f;
 };
 
+// Where a cut would go: a horizontal plane across an object's footprint.
+struct CutPlane {
+    bool  visible = false;
+    float z = 0.f;
+    float x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f;
+};
+
 struct BedShape {
     std::vector<std::array<float, 2>> outline; // bed polygon in mm
     float                             max_height = 0.f;
@@ -160,6 +167,18 @@ public:
     // Assigns a 1-based extruder (ACE slot) to a whole object (part < 0) or to one of its model parts.
     // Assigning the whole object also clears the per-part choices.
     void        set_extruder(uint64_t id, int part, int extruder);
+    // Mirrors the object along a world axis (0 X, 1 Y, 2 Z), whatever its rotation.
+    void        mirror_object(uint64_t id, int axis);
+    // Splits the object where its mesh is not connected: into separate objects, or into parts of the
+    // object, which then get filament slots in turn. Returns {"ids": [...]} of the objects, empty
+    // when there was nothing to split.
+    std::string split_object(uint64_t id, bool into_parts);
+    // Cuts the object across at `height` mm above the bed, as PrusaSlicer's cut tool with a plane.
+    // The upper part can be turned over to stand on its cut face. Returns {"ids": [...]}.
+    std::string cut_object(uint64_t id, double height, bool keep_upper, bool keep_lower, bool upper_on_cut);
+    // Shows where a cut at `height` would go across the object; a height below 0 hides it.
+    void        set_cut_plane(uint64_t id, double height);
+    CutPlane    cut_plane() const;
     // Wipe tower placement used for arranging and slicing; the UI decides whether one is printed.
     void        set_wipe_tower(const WipeTowerShape& shape);
     WipeTowerShape wipe_tower() const;
@@ -255,6 +274,7 @@ private:
     int64_t                                m_selected = -1;
     float                                  m_arrange_distance = 6.f;
     WipeTowerShape                         m_wipe_tower;
+    CutPlane                               m_cut_plane;
     std::vector<std::pair<uint64_t, std::shared_ptr<const MeshData>>> m_meshes;
     std::atomic<uint64_t>                  m_plate_revision{1};
     std::unique_ptr<PaintSession>          m_paint;

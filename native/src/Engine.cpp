@@ -23,11 +23,13 @@
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/AABBMesh.hpp"
 #include "libslic3r/BuildVolume.hpp"
+#include "libslic3r/CutUtils.hpp"
 #include "libslic3r/FileReader.hpp"
 #include "libslic3r/Format/3mf.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/ModelProcessing.hpp"
 #include "libslic3r/MultipleBeds.hpp"
 #include "libslic3r/ObjectID.hpp"
 #include "libslic3r/Preset.hpp"
@@ -807,6 +809,141 @@ void Engine::set_extruder(uint64_t id, int part, int extruder)
                 v->config.set("extruder", extruder);
     }
     touch_plate();
+}
+
+void Engine::mirror_object(uint64_t id, int axis)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    if (o == nullptr || o->instances.empty() || axis < 0 || axis > 2)
+        return;
+    end_paint_of(id);
+    // A mirror along the world axis, put into the parts' own transformations: the instance keeps
+    // its rotation and scale, which the transform tools edit as plain numbers.
+    const Transform3d linear = o->instances.front()->get_matrix_no_offset();
+    Transform3d mirror = Transform3d::Identity();
+    mirror(axis, axis) = -1.;
+    const Transform3d in_object = linear.inverse() * mirror * linear;
+    for (ModelVolume* v : o->volumes)
+        v->set_transformation(Geometry::Transformation(in_object * v->get_matrix()));
+    m_meshes.erase(std::remove_if(m_meshes.begin(), m_meshes.end(), [id](const auto& m) { return m.first == id; }), m_meshes.end());
+    o->invalidate_bounding_box();
+    o->ensure_on_bed();
+    m_model->update_print_volume_state(build_volume(m_bed));
+    touch_plate();
+}
+
+std::string Engine::split_object(uint64_t id, bool into_parts)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    json ids = json::array();
+    if (o == nullptr || o->instances.empty())
+        return json{ {"ids", ids} }.dump();
+    end_paint_of(id);
+    if (into_parts) {
+        const unsigned extruders = unsigned(m_bundle->printers.get_edited_preset().config.option<ConfigOptionFloats>("nozzle_diameter")->values.size());
+        size_t parts = 0;
+        for (size_t i = 0; i < o->volumes.size(); ++i)
+            if (o->volumes[i]->is_model_part()) {
+                const size_t n = ModelProcessing::split(o->volumes[i], extruders);
+                parts += n;
+                i += n - 1; // the new parts follow the split one
+            }
+        if (parts > 1) {
+            // Parts choose their own filaments now.
+            o->config.erase("extruder");
+            m_meshes.erase(std::remove_if(m_meshes.begin(), m_meshes.end(), [id](const auto& m) { return m.first == id; }), m_meshes.end());
+            ids.push_back(id);
+            touch_plate();
+        }
+        return json{ {"ids", ids} }.dump();
+    }
+    ModelObjectPtrs pieces;
+    ModelProcessing::split(o, &pieces);
+    if (pieces.size() <= 1) {
+        // One piece: nothing to split. split() added it to the model already.
+        for (ModelObject* piece : pieces)
+            m_model->delete_object(piece);
+        return json{ {"ids", ids} }.dump();
+    }
+    for (ModelObject* piece : pieces) {
+        // As separate objects they stand on the bed where they were.
+        piece->invalidate_bounding_box();
+        piece->ensure_on_bed();
+        ids.push_back(piece->id().id);
+    }
+    m_layer_quality.erase(id);
+    m_meshes.erase(std::remove_if(m_meshes.begin(), m_meshes.end(), [id](const auto& m) { return m.first == id; }), m_meshes.end());
+    m_model->delete_object(o);
+    m_selected = -1;
+    m_model->update_print_volume_state(build_volume(m_bed));
+    touch_plate();
+    return json{ {"ids", ids} }.dump();
+}
+
+std::string Engine::cut_object(uint64_t id, double height, bool keep_upper, bool keep_lower, bool upper_on_cut)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    json ids = json::array();
+    if (o == nullptr || o->instances.empty() || (!keep_upper && !keep_lower))
+        return json{ {"ids", ids} }.dump();
+    const BoundingBoxf3 bb = o->instance_bounding_box(0);
+    if (height <= bb.min.z() + EPSILON || height >= bb.max.z() - EPSILON)
+        throw RuntimeError("Cut somewhere between the bottom and the top of the object.");
+    end_paint_of(id);
+    m_cut_plane.visible = false;
+
+    // A horizontal plane through the object's center at the height, relative to the instance, as the cut tool builds it.
+    const Vec3d offset = o->instances.front()->get_offset();
+    const Transform3d cut_matrix = Geometry::translation_transform(Vec3d(0., 0., height - offset.z()));
+    // (enum_bitmask's |= does not compile, so the bits are combined with |.)
+    ModelObjectCutAttributes attributes = ModelObjectCutAttribute::InvalidateCutInfo;
+    if (keep_upper)   attributes = attributes | ModelObjectCutAttribute::KeepUpper;
+    if (keep_lower)   attributes = attributes | ModelObjectCutAttribute::KeepLower;
+    if (upper_on_cut) attributes = attributes | ModelObjectCutAttribute::PlaceOnCutUpper;
+    Cut cut(o, 0, cut_matrix, attributes);
+    const ModelObjectPtrs& parts = cut.perform_with_plane();
+    if (parts.empty())
+        return json{ {"ids", ids} }.dump();
+
+    m_layer_quality.erase(id);
+    m_meshes.erase(std::remove_if(m_meshes.begin(), m_meshes.end(), [id](const auto& m) { return m.first == id; }), m_meshes.end());
+    m_model->delete_object(o);
+    m_selected = -1;
+    const size_t first_new = m_model->objects.size();
+    for (const ModelObject* part : parts) {
+        ModelObject* added = m_model->add_object(*part);
+        while (added->instances.size() > 1)
+            added->delete_instance(added->instances.size() - 1);
+        ids.push_back(added->id().id);
+    }
+    // The parts would stand in each other; arrange makes room.
+    place_new_objects(first_new);
+    touch_plate();
+    return json{ {"ids", ids} }.dump();
+}
+
+void Engine::set_cut_plane(uint64_t id, double height)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = height >= 0. ? find_object(id) : nullptr;
+    if (o == nullptr || o->instances.empty()) {
+        m_cut_plane.visible = false;
+    } else {
+        const BoundingBoxf3 bb = o->instance_bounding_box(0);
+        const float margin = 5.f;
+        m_cut_plane = { true, float(height), float(bb.min.x()) - margin, float(bb.min.y()) - margin,
+                        float(bb.max.x()) + margin, float(bb.max.y()) + margin };
+    }
+    touch_plate();
+}
+
+CutPlane Engine::cut_plane() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_cut_plane;
 }
 
 void Engine::set_wipe_tower(const WipeTowerShape& shape)

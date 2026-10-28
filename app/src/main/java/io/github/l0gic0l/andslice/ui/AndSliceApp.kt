@@ -346,6 +346,7 @@ private fun SlicerScreen(
     BackHandler(enabled = preview) { vm.showPlate() }
     BackHandler(enabled = vm.transformOpen) { vm.transformOpen = false }
     BackHandler(enabled = vm.objectSettingsOpen) { vm.openObjectSettings(false) }
+    BackHandler(enabled = vm.cutOpen) { vm.openCut(false) }
     BackHandler(enabled = vm.paintMode != null) { vm.stopPainting() }
     val split = layout != SlicerLayout.Single
 
@@ -421,7 +422,7 @@ private fun SlicerScreen(
             // The side panel has its own Slice button.
             AnimatedVisibility(
                 visible = !split && !preview && vm.objects.isNotEmpty() && !vm.slicing && vm.paintMode == null && !vm.transformOpen &&
-                    !vm.objectSettingsOpen,
+                    !vm.objectSettingsOpen && !vm.cutOpen,
                 enter = scaleIn() + fadeIn(),
                 exit = scaleOut() + fadeOut(),
             ) {
@@ -459,6 +460,7 @@ private fun SlicerScreen(
                                 ObjectToolbar(vm, obj, Modifier.align(Alignment.TopCenter).padding(12.dp))
                                 if (vm.transformOpen) TransformPanel(vm, obj, panel)
                                 if (vm.objectSettingsOpen) ObjectSettingsPanel(vm, obj, panel)
+                                if (vm.cutOpen) CutPanel(vm, obj, panel)
                             }
                         }
                     }

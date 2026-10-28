@@ -756,6 +756,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (objs.none { it.id == selectedId }) {
                 selectedId = -1
+                if (cutOpen) openCut(false)
                 // The engine ends the paint session of a removed object.
                 paintMode = null
             }
@@ -780,6 +781,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             stopPainting()
             transformOpen = false
             objectSettingsOpen = false
+            if (cutOpen) openCut(false)
         }
         selectedId = id
         NativeEngine.select(id)
@@ -829,6 +831,81 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     /** The move, rotate and scale panel is open for the selected object. */
     var transformOpen by mutableStateOf(false)
 
+    // ------------------------------------------------------------------ mirror, split, cut
+
+    /** Mirrors the selected object along a world axis: 0 X, 1 Y, 2 Z. */
+    fun mirrorSelected(axis: Int) {
+        val id = selectedId.takeIf { it >= 0 } ?: return
+        launchEngine {
+            NativeEngine.mirrorObject(id, axis)
+            refreshObjects()
+        }
+    }
+
+    /**
+     * Splits the selected object where its mesh is not connected: into separate objects, or into
+     * parts of it, which get filament slots in turn on multi-material printers.
+     */
+    fun splitSelected(intoParts: Boolean) {
+        val id = selectedId.takeIf { it >= 0 } ?: return
+        stopPainting()
+        launchEngine("Splitting…") {
+            val ids = JSONObject(NativeEngine.splitObject(id, intoParts)).getJSONArray("ids")
+            refreshObjects()
+            withContext(Dispatchers.Main) {
+                if (ids.length() == 0) message = "The object is in one piece, so there is nothing to split."
+                else if (!intoParts) message = "Split into ${ids.length()} objects."
+            }
+            if (ids.length() > 0) selectOnEngine(ids.getLong(0))
+        }
+    }
+
+    /** The cut tool is open for the selected object. */
+    var cutOpen by mutableStateOf(false); private set
+    /** Height of the cut above the bed, in mm. */
+    var cutHeight by mutableFloatStateOf(0f); private set
+    var cutKeepUpper by mutableStateOf(true)
+    var cutKeepLower by mutableStateOf(true)
+    /** Turn the upper part over, onto its flat cut face, which prints without supports. */
+    var cutUpperOnCut by mutableStateOf(true)
+
+    fun openCut(open: Boolean) {
+        val obj = selectedObject
+        cutOpen = open && obj != null
+        if (cutOpen && obj != null) {
+            stopPainting()
+            transformOpen = false
+            objectSettingsOpen = false
+            layFaceMode = false
+            moveCut((obj.size[2] / 2).toFloat())
+        } else {
+            NativeEngine.setCutPlane(selectedId, -1.0)
+            redraw()
+        }
+    }
+
+    fun moveCut(height: Float) {
+        val obj = selectedObject ?: return
+        cutHeight = height.coerceIn(0f, obj.size[2].toFloat())
+        NativeEngine.setCutPlane(obj.id, cutHeight.toDouble())
+        redraw()
+    }
+
+    fun cutSelected() {
+        val id = selectedId.takeIf { it >= 0 } ?: return
+        val height = cutHeight.toDouble()
+        val upper = cutKeepUpper
+        val lower = cutKeepLower
+        val onCut = cutUpperOnCut
+        cutOpen = false
+        launchEngine("Cutting…") {
+            val ids = JSONObject(NativeEngine.cutObject(id, height, upper, lower, onCut)).getJSONArray("ids")
+            NativeEngine.setCutPlane(-1, -1.0)
+            refreshObjects()
+            if (ids.length() > 0) selectOnEngine(ids.getLong(0))
+        }
+    }
+
     // ------------------------------------------------------------------ object settings
 
     /** The panel with the selected object's own settings is open. */
@@ -841,6 +918,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         stopPainting()
         transformOpen = false
         layFaceMode = false
+        if (cutOpen) openCut(false)
         changeObject {}
     }
 

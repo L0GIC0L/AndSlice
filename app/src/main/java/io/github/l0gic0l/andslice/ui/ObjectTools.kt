@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Height
 import androidx.compose.material.icons.filled.LayersClear
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -85,6 +86,55 @@ internal fun ToolPanel(modifier: Modifier, content: @Composable () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             content()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------- cut
+
+/** Cuts the selected object across at a height, shown as a plane in the 3D view. */
+@Composable
+fun CutPanel(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Modifier) {
+    val height = obj.size[2].toFloat()
+    ToolPanel(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Cut", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            IconButton(onClick = { vm.openCut(false) }) { Icon(Icons.Default.Close, "Close") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Slider(
+                value = vm.cutHeight,
+                onValueChange = { vm.moveCut((it * 10).roundToInt() / 10f) },
+                valueRange = 0f..height,
+                modifier = Modifier.weight(1f).semantics { contentDescription = "Cut height" },
+            )
+            var text by remember(vm.cutHeight) { mutableStateOf(fmt(vm.cutHeight.toDouble(), 1)) }
+            NumberField("Height", "mm", text, { value ->
+                text = value
+                value.replace(',', '.').toFloatOrNull()?.let(vm::moveCut)
+            }, Modifier.width(120.dp))
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            FilterChip(selected = vm.cutKeepUpper, onClick = { vm.cutKeepUpper = !vm.cutKeepUpper }, label = { Text("Keep upper part") })
+            FilterChip(selected = vm.cutKeepLower, onClick = { vm.cutKeepLower = !vm.cutKeepLower }, label = { Text("Keep lower part") })
+            FilterChip(
+                selected = vm.cutUpperOnCut,
+                onClick = { vm.cutUpperOnCut = !vm.cutUpperOnCut },
+                enabled = vm.cutKeepUpper,
+                label = { Text("Upper part on its cut face") },
+            )
+        }
+        Text(
+            "The parts become separate objects. Turned onto its flat cut face, the upper part needs no supports there.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = { vm.openCut(false) }) { Text("Cancel") }
+            Button(
+                onClick = vm::cutSelected,
+                enabled = (vm.cutKeepUpper || vm.cutKeepLower) && vm.cutHeight > 0.05f && vm.cutHeight < height - 0.05f,
+            ) { Text("Cut") }
         }
     }
 }

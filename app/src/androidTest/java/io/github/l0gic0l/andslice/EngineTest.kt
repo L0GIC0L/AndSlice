@@ -234,6 +234,31 @@ class EngineTest {
     }
 
     @Test
+    fun splitsCutsAndMirrors() {
+        // Two cubes side by side in one file: one object until it is split.
+        val stl = File(dir, "two.stl").apply { writeText("solid two\n" + cubeFacets(10.0) + cubeFacets(10.0, dx = 20.0) + "endsolid two\n") }
+        NativeEngine.addModel(stl.path, "two")
+        val joined = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        val split = org.json.JSONObject(NativeEngine.splitObject(joined.id, false)).getJSONArray("ids")
+        assertEquals(2, split.length())
+        val pieces = PlateObject.parseList(NativeEngine.objectsJson())
+        assertEquals(listOf(10.0, 10.0), pieces.map { it.size[0] })
+        // A single piece has nothing to split.
+        assertEquals(0, org.json.JSONObject(NativeEngine.splitObject(pieces[0].id, false)).getJSONArray("ids").length())
+
+        // Cut the other cube in half: two objects of 5 mm.
+        val cut = org.json.JSONObject(NativeEngine.cutObject(pieces[1].id, 5.0, true, true, true)).getJSONArray("ids")
+        assertEquals(2, cut.length())
+        val halves = PlateObject.parseList(NativeEngine.objectsJson()).filter { it.id != pieces[0].id }
+        assertEquals(listOf(5.0, 5.0), halves.map { Math.round(it.size[2] * 1000) / 1000.0 })
+
+        NativeEngine.mirrorObject(pieces[0].id, 0)
+        NativeEngine.setCutPlane(pieces[0].id, 3.0)
+        NativeEngine.setCutPlane(-1, -1.0)
+        assertEquals(3, PlateObject.parseList(NativeEngine.objectsJson()).size)
+    }
+
+    @Test
     fun adaptiveLayersAndObjectSettings() {
         val stl = File(dir, "pyramid.stl").apply { writeText(pyramidStl()) }
         NativeEngine.addModel(stl.path, "pyramid")
@@ -341,7 +366,10 @@ class EngineTest {
         }
     }
 
-    private fun cubeStl(size: Double): String {
+    private fun cubeStl(size: Double): String = "solid cube\n" + cubeFacets(size) + "endsolid cube\n"
+
+    /** The facets of a cube of [size] mm, moved [dx] mm along X. */
+    private fun cubeFacets(size: Double, dx: Double = 0.0): String {
         val s = size
         val v = arrayOf(
             doubleArrayOf(0.0, 0.0, 0.0), doubleArrayOf(s, 0.0, 0.0), doubleArrayOf(s, s, 0.0), doubleArrayOf(0.0, s, 0.0),
@@ -353,13 +381,11 @@ class EngineTest {
             intArrayOf(2, 3, 7), intArrayOf(2, 7, 6), intArrayOf(3, 0, 4), intArrayOf(3, 4, 7),
         )
         return buildString {
-            append("solid cube\n")
             for (f in faces) {
                 append("facet normal 0 0 0\nouter loop\n")
-                for (i in f) append("vertex ${v[i][0]} ${v[i][1]} ${v[i][2]}\n")
+                for (i in f) append("vertex ${v[i][0] + dx} ${v[i][1]} ${v[i][2]}\n")
                 append("endloop\nendfacet\n")
             }
-            append("endsolid cube\n")
         }
     }
 }

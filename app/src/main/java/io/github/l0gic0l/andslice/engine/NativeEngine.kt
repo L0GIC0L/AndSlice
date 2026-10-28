@@ -52,6 +52,14 @@ object NativeEngine {
     external fun select(id: Long)
     /** Gives a whole object (part < 0) or one of its model parts the 1-based [extruder]. */
     external fun setExtruder(id: Long, part: Int, extruder: Int)
+    /** Mirrors the object along a world axis: 0 X, 1 Y, 2 Z. */
+    external fun mirrorObject(id: Long, axis: Int)
+    /** Splits where the mesh is not connected, into objects or parts; {"ids"}, empty when it is one piece. */
+    external fun splitObject(id: Long, intoParts: Boolean): String
+    /** Cuts across at [height] mm above the bed; {"ids"} of the parts kept. */
+    external fun cutObject(id: Long, height: Double, keepUpper: Boolean, keepLower: Boolean, upperOnCut: Boolean): String
+    /** Shows where a cut at [height] would go across the object; below 0 hides it. */
+    external fun setCutPlane(id: Long, height: Double)
     /** values = {x, y, width, depth, brim, height} of the wipe tower in mm. */
     external fun setWipeTower(visible: Boolean, values: FloatArray)
     /** Wipe tower {x, y}; arranging may move it. */

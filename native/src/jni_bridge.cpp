@@ -245,6 +245,29 @@ JNIEXPORT void JNICALL FN(setExtruder)(JNIEnv* env, jobject, jlong id, jint part
     guarded_void(env, [&] { Engine::get().set_extruder(uint64_t(id), part, extruder); });
 }
 
+JNIEXPORT void JNICALL FN(mirrorObject)(JNIEnv* env, jobject, jlong id, jint axis)
+{
+    guarded_void(env, [&] { Engine::get().mirror_object(uint64_t(id), axis); });
+}
+
+JNIEXPORT jstring JNICALL FN(splitObject)(JNIEnv* env, jobject, jlong id, jboolean into_parts)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().split_object(uint64_t(id), into_parts)); }, (jstring) nullptr);
+}
+
+JNIEXPORT jstring JNICALL FN(cutObject)(JNIEnv* env, jobject, jlong id, jdouble height, jboolean keep_upper, jboolean keep_lower,
+                                       jboolean upper_on_cut)
+{
+    return guarded(env, [&] {
+        return to_jstring(env, Engine::get().cut_object(uint64_t(id), height, keep_upper, keep_lower, upper_on_cut));
+    }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(setCutPlane)(JNIEnv* env, jobject, jlong id, jdouble height)
+{
+    guarded_void(env, [&] { Engine::get().set_cut_plane(uint64_t(id), height); });
+}
+
 // values = {x, y, width, depth, brim, height}
 JNIEXPORT void JNICALL FN(setWipeTower)(JNIEnv* env, jobject, jboolean visible, jfloatArray values)
 {

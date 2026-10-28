@@ -1,7 +1,20 @@
 package io.github.l0gic0l.andslice.octoprint
 
 import java.io.File
+import java.net.URI
 import java.net.URL
+
+/** A camera of the printer: an MJPEG stream and/or a JPEG snapshot URL, both absolute. */
+data class Webcam(
+    val streamUrl: String?,
+    val snapshotUrl: String?,
+    val flipHorizontal: Boolean = false,
+    val flipVertical: Boolean = false,
+    /** Clockwise, in degrees: 0, 90, 180 or 270. */
+    val rotation: Int = 0,
+)
+
+enum class Heater { Hotend, Bed }
 
 /** A print server the app sends G-code to: OctoPrint, or Moonraker (Klipper, such as Rinkhals on the Kobra 3). */
 interface PrinterHost {
@@ -14,6 +27,16 @@ interface PrinterHost {
     suspend fun upload(file: File, print: Boolean, onProgress: (Float) -> Unit = {})
     suspend fun pauseOrResume()
     suspend fun cancel()
+
+    /** The printer's camera as the server knows it, or null. */
+    suspend fun webcam(): Webcam?
+    suspend fun setTemperature(heater: Heater, celsius: Int)
+    suspend fun home()
+    /** Relative move of the print head in mm. */
+    suspend fun jog(x: Double = 0.0, y: Double = 0.0, z: Double = 0.0)
+    /** Sends G-code lines to the printer. */
+    suspend fun sendGcode(script: String)
+    suspend fun emergencyStop()
 
     companion object {
         /**
@@ -31,6 +54,16 @@ interface PrinterHost {
         }
 
         const val MOONRAKER_PORT = 7125
+
+        /** Resolves [url] against [base]; relative camera paths belong to the web server. */
+        fun resolve(base: String, url: String?): String? {
+            if (url.isNullOrBlank()) return null
+            return try {
+                URI(base).resolve(url.trim()).toString()
+            } catch (e: Exception) {
+                null
+            }
+        }
 
         private fun hasPort(url: String) = try {
             URL(url).port != -1

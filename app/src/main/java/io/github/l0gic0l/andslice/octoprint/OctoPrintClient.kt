@@ -2,6 +2,7 @@ package io.github.l0gic0l.andslice.octoprint
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -83,9 +84,38 @@ class OctoPrintClient(baseUrl: String, apiKey: String) : PrinterHost {
 
     override suspend fun cancel() = jobCommand(JSONObject().put("command", "cancel"))
 
-    private suspend fun jobCommand(body: JSONObject) = withContext(Dispatchers.IO) {
+    private suspend fun jobCommand(body: JSONObject) = post("/api/job", body)
+
+    /** The classic webcam settings (OctoPrint's bundled MJPEG webcam). */
+    override suspend fun webcam(): Webcam? = withContext(Dispatchers.IO) {
+        val cam = JSONObject(http.request("GET", "/api/settings").body).optJSONObject("webcam") ?: return@withContext null
+        if (!cam.optBoolean("webcamEnabled", true)) return@withContext null
+        val base = "$baseUrl/"
+        val stream = PrinterHost.resolve(base, cam.optString("streamUrl"))
+        val snapshot = PrinterHost.resolve(base, cam.optString("snapshotUrl"))
+        if (stream == null && snapshot == null) return@withContext null
+        Webcam(stream, snapshot, cam.optBoolean("flipH"), cam.optBoolean("flipV"), if (cam.optBoolean("rotate90")) 270 else 0)
+    }
+
+    override suspend fun setTemperature(heater: Heater, celsius: Int) = when (heater) {
+        Heater.Hotend -> post("/api/printer/tool", JSONObject().put("command", "target").put("targets", JSONObject().put("tool0", celsius)))
+        Heater.Bed -> post("/api/printer/bed", JSONObject().put("command", "target").put("target", celsius))
+    }
+
+    override suspend fun home() =
+        post("/api/printer/printhead", JSONObject().put("command", "home").put("axes", JSONArray(listOf("x", "y", "z"))))
+
+    override suspend fun jog(x: Double, y: Double, z: Double) =
+        post("/api/printer/printhead", JSONObject().put("command", "jog").put("x", x).put("y", y).put("z", z))
+
+    override suspend fun sendGcode(script: String) =
+        post("/api/printer/command", JSONObject().put("commands", JSONArray(script.lines().filter { it.isNotBlank() })))
+
+    override suspend fun emergencyStop() = sendGcode("M112")
+
+    private suspend fun post(path: String, body: JSONObject) = withContext(Dispatchers.IO) {
         val bytes = body.toString().toByteArray()
-        http.check(http.execute("POST", "/api/job", "application/json", bytes.size.toLong()) { it.write(bytes) })
+        http.check(http.execute("POST", path, "application/json", bytes.size.toLong()) { it.write(bytes) })
     }
 
     companion object {

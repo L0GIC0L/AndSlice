@@ -77,13 +77,28 @@ class Engine {
 public:
     static Engine& get();
 
-    // Sets PrusaSlicer's data/resources directories and loads the system profile bundle.
-    void init(const std::string& data_dir, const std::string& resources_dir, const std::string& bundle_path);
+    // Sets PrusaSlicer's data/resources directories, empties the plate and loads the profiles (see load_profiles).
+    void init(const std::string& data_dir, const std::string& resources_dir, const std::vector<std::string>& bundles);
+    // Loads the given vendor config bundles as system presets (the first one is the default vendor),
+    // then the user presets saved in the data directory. The plate is kept.
+    void load_profiles(const std::vector<std::string>& bundles);
 
     // ---------------------------------------------------------------- profiles
     // {"printers":[...], "prints":[...], "filaments":[...], "default_print":..., "default_filament":...,
-    //  "extruders": N} where prints and filaments are the presets compatible with `printer`.
+    //  "extruders": N, "template_filaments": [...], "user": {"print": [...], "filament": [...], "printer": [...]},
+    //  "vendor": ..., "model": ..., "variant": ..., "variants": [{"variant", "preset"}]}
+    // where prints and filaments are the presets compatible with `printer`, and variants are the
+    // nozzle variants of the printer's model.
     std::string presets_json(const std::string& printer);
+    // Name of the system printer preset of a vendor's model and nozzle variant, or "" if not loaded.
+    std::string printer_for_model(const std::string& model, const std::string& variant);
+    // Saves the selected preset of `type` ("print", "filament" or "printer") with the overrides
+    // that belong to it as the user preset `name`. Returns the preset name.
+    std::string save_preset(const std::string& type, const std::string& name, const std::string& printer,
+                            const std::string& print, const std::vector<std::string>& filaments,
+                            const std::vector<std::pair<std::string, std::string>>& overrides);
+    // Deletes a user preset and its file.
+    void        delete_preset(const std::string& type, const std::string& name);
     // Fully resolved configuration (key -> serialized value) for the printer, print and per-extruder filaments.
     std::string config_json(const std::string& printer, const std::string& print, const std::vector<std::string>& filaments);
     // Metadata of every option the settings screen can edit, grouped by preset type.
@@ -136,6 +151,7 @@ private:
 
     Slic3r::DynamicPrintConfig resolve_config(const std::string& printer, const std::string& print,
                                               const std::vector<std::string>& filaments);
+    void                       load_profiles_locked(const std::vector<std::string>& bundles);
     void                       arrange_plate();
     Slic3r::ModelObject*       find_object(uint64_t id);
     void                       place_new_objects(size_t first_new);
@@ -144,6 +160,7 @@ private:
 
     mutable std::mutex                     m_mutex;        // guards everything below except m_print
     std::unique_ptr<Slic3r::PresetBundle>  m_bundle;
+    std::string                            m_data_dir;
     std::unique_ptr<Slic3r::Model>         m_model;
     BedShape                               m_bed;
     int64_t                                m_selected = -1;

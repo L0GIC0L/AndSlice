@@ -1,0 +1,20 @@
+diff --git a/src/libslic3r/PresetBundle.hpp b/src/libslic3r/PresetBundle.hpp
+index 1f4de78..72a1cc6 100644
+--- a/src/libslic3r/PresetBundle.hpp
++++ b/src/libslic3r/PresetBundle.hpp
+@@ -203,12 +203,13 @@ public:
+         return      { Preset::TYPE_PRINTER, Preset::TYPE_SLA_PRINT, Preset::TYPE_SLA_MATERIAL };
+     }
+ 
+-private:
+-    std::pair<PresetsConfigSubstitutions, std::string> load_system_presets(ForwardCompatibilitySubstitutionRule compatibility_rule);
+     // Merge one vendor's presets with the other vendor's presets, report duplicates.
+     std::vector<std::string>    merge_presets(PresetBundle &&other);
+     // Update renamed_from and alias maps of system profiles.
+     void 						update_system_maps();
++
++private:
++    std::pair<PresetsConfigSubstitutions, std::string> load_system_presets(ForwardCompatibilitySubstitutionRule compatibility_rule);
+     // Update alias maps
+     void 						update_alias_maps();
+ 

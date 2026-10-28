@@ -1,6 +1,12 @@
 package io.github.l0gic0l.andslice.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SaveAs
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyRow
@@ -84,7 +90,12 @@ private val MODES = listOf("Simple", "Advanced", "Expert")
 /** Every PrusaSlicer option of the selected presets, on PrusaSlicer's own pages and in its option groups. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
+fun SettingsScreen(
+    vm: SlicerViewModel,
+    wide: Boolean = false,
+    onBack: (() -> Unit)?,
+    onPrinterPresetSaved: (String) -> Unit = {},
+) {
     val defs = vm.optionDefs ?: return
     val context = LocalContext.current
     val layout = remember {
@@ -95,7 +106,16 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedPage by rememberSaveable(tab) { mutableStateOf<String?>(null) }
     var help by remember { mutableStateOf<OptionDef?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
     val type = PresetType.entries[tab]
+    val currentPreset = when (type) {
+        PresetType.Print -> vm.print
+        PresetType.Filament -> vm.filament
+        PresetType.Printer -> vm.printer
+    }
+    // Saved printer profiles are removed together with their printer, so only prints and filaments delete here.
+    val deletable = type != PresetType.Printer && vm.presets?.isUser(type, currentPreset) == true
 
     val visible = defs.byType[type].orEmpty().filter { it.mode <= mode && it.key !in HIDDEN_KEYS }
     val sections = remember(type, mode, defs) { layout.sections(type, visible) }
@@ -111,12 +131,15 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
         sections.filter { it.page == page }
     }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     LaunchedEffect(tab, page, searching) { listState.scrollToItem(0) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                navigationIcon = {
+                    if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                },
                 title = {
                     Column {
                         Text("Settings")
@@ -133,6 +156,8 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
                     if (vm.overrides.isNotEmpty()) {
                         TextButton(onClick = vm::resetAllOverrides) { Text("Reset all") }
                     }
+                    IconButton(onClick = { saving = true }) { Icon(Icons.Default.SaveAs, "Save as profile") }
+                    if (deletable) IconButton(onClick = { deleting = true }) { Icon(Icons.Default.Delete, "Delete profile") }
                 },
             )
         },
@@ -170,7 +195,7 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
                     ) { Text(name) }
                 }
             }
-            if (!searching) {
+            if (!searching && !wide) {
                 // One chip per PrusaSlicer page; the badge counts the options changed on that page.
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
@@ -187,7 +212,25 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
                     }
                 }
             }
-            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
+            Row(Modifier.fillMaxSize()) {
+            if (wide) {
+                // Tablets: the pages as a list beside the options.
+                LazyColumn(Modifier.width(280.dp).fillMaxHeight(), contentPadding = PaddingValues(12.dp)) {
+                    items(pages, key = { it }) { p ->
+                        val changed = sections.filter { it.page == p }.sumOf { s -> s.options.count { it.key in vm.overrides } }
+                        NavigationDrawerItem(
+                            label = { Text(p) },
+                            selected = p == page && !searching,
+                            onClick = {
+                                query = ""
+                                selectedPage = p
+                            },
+                            badge = if (changed > 0) ({ Badge { Text("$changed") } }) else null,
+                        )
+                    }
+                }
+            }
+            LazyColumn(Modifier.weight(1f).fillMaxHeight(), state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
                 if (shown.isEmpty()) {
                     item(key = "empty") {
                         Text(
@@ -206,7 +249,37 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
                     }
                 }
             }
+            }
         }
+    }
+
+    if (saving) {
+        SavePresetDialog(type, currentPreset, onDismiss = { saving = false }) { name ->
+            saving = false
+            scope.launch {
+                try {
+                    val saved = vm.saveUserPreset(type, name)
+                    if (type == PresetType.Printer) onPrinterPresetSaved(saved)
+                    vm.message = "Saved \"$saved\"."
+                } catch (e: Exception) {
+                    vm.message = e.message ?: e.toString()
+                }
+            }
+        }
+    }
+    if (deleting) {
+        AlertDialog(
+            onDismissRequest = { deleting = false },
+            title = { Text("Delete \"$currentPreset\"?") },
+            text = { Text("Your saved ${type.name.lowercase()} profile is removed from this device.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleting = false
+                    vm.deleteUserPreset(type, currentPreset)
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleting = false }) { Text("Keep") } },
+        )
     }
 
     help?.let { def ->
@@ -217,6 +290,29 @@ fun SettingsScreen(vm: SlicerViewModel, onBack: () -> Unit) {
             confirmButton = { TextButton(onClick = { help = null }) { Text("Close") } },
         )
     }
+}
+
+/** Name for a new user profile made from the current profile and its changes. */
+@Composable
+private fun SavePresetDialog(type: PresetType, current: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    // "0.20mm Standard @Kobra 3 0.4 nozzle" -> "0.20mm Standard (mine)"
+    var name by remember { mutableStateOf(current.substringBefore(" @") + " (mine)") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.SaveAs, null) },
+        title = { Text("Save ${type.name.lowercase()} profile") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Saves \"$current\" with your changes as a profile of your own.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim()) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 private fun OptionDef.matches(query: String) = fullLabel.contains(query, true) || key.contains(query, true)

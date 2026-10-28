@@ -1,7 +1,8 @@
 # AndSlice
 
-A 3D model slicer for Android, tuned for the **Anycubic Kobra 3** and the Kobra 3 Combo with the ACE Pro,
-with printing over Wi-Fi through OctoPrint or Moonraker (Rinkhals).
+A 3D model slicer for Android, tuned for the **Anycubic Kobra 3** and the Kobra 3 Combo with the ACE Pro, and
+ready for about 260 other printers. It prints and controls printers over Wi-Fi through Moonraker (Rinkhals)
+or OctoPrint, with the printer's camera in the app.
 
 AndSlice runs PrusaSlicer's actual slicing engine on the phone. **libslic3r**
 (PrusaSlicer 2.9.6) generates the G-code, and PrusaSlicer's own G-code viewer
@@ -16,6 +17,10 @@ Android 12+ and light and dark themes.
 - Object tools: lay on face, rotate, move/rotate/scale by numbers, center, duplicate, delete, auto-arrange
 - Kobra 3 profiles for 0.2, 0.4, 0.6 and 0.8 mm nozzles, with Anycubic's start macro (`G9111`), speeds,
   accelerations and filament presets (PLA, PLA+, PLA High Speed, PLA Matte/Silk/Glow/SE, PETG, ABS, ASA, TPU)
+- **Your printers:** several saved printers, each with its profile, connection and camera. Add one from
+  PrusaSlicer's vendor profiles (Prusa, Creality, Voron, Sovol, Elegoo, Qidi, Anker, Artillery, RatRig and
+  more, 260 models) or as a custom printer from its bed size, nozzle, firmware and extruder type
+- **Your profiles:** save print, filament and printer settings as profiles of your own (Settings → Save as)
 - **Multi-color with the ACE Pro** (Kobra 3 Combo): a filament and color per ACE slot, objects and parts
   assigned to slots, objects drawn in their filament colors, a movable prime tower, and a filament view in the
   preview
@@ -30,6 +35,10 @@ Android 12+ and light and dark themes.
 - **OctoPrint and Moonraker:** upload G-code or upload and start the print, then watch temperatures and
   progress and pause or cancel the job. The app finds out which server it is talking to; a Kobra 3 running
   Rinkhals only needs its IP address.
+- **Printer control:** live camera (MJPEG or snapshots), temperatures and preheat, homing, jogging X/Y/Z,
+  fan and motors, a G-code console and an emergency stop
+- **Tablets and foldables:** a navigation rail and side panels on wide screens, printer cards in columns,
+  settings as a list beside the options, and a split view when a foldable is half open on a table
 
 ## Download
 
@@ -48,6 +57,15 @@ Android 9 or newer with OpenGL ES 3.0 is required.
 2. Check the preview, then tap **Save G-code** and pick a USB stick (through a USB-C OTG adapter) or any folder.
 3. Put the USB stick into the Kobra 3 and start the file from the printer's screen.
 
+### Other printers
+
+Open the printer chip under the plate (or the printer name on the Printer screen) and choose **Add printer**.
+Search for the model, pick the nozzle and optionally enter its network address. Printers without a vendor
+profile are added as **Custom printer**: bed size, height, nozzle, firmware (Marlin 2, Klipper,
+RepRapFirmware) and direct drive or Bowden. Their start and end G-code can be edited in Settings → Printer.
+Each vendor's profiles are loaded when one of its printers is added; a large vendor such as Prusa takes a few
+seconds.
+
 ### Over Wi-Fi with Rinkhals, Moonraker or OctoPrint
 
 1. Open **Printer** (printer icon in the top bar).
@@ -58,8 +76,13 @@ Android 9 or newer with OpenGL ES 3.0 is required.
 2. Tap **Test**, then **Save**.
 3. After slicing, tap **Print** in the preview and choose **Upload and print** or **Upload only**.
 
-The Printer screen shows the state, hotend and bed temperatures and job progress, with pause and cancel.
+The Printer screen shows the camera, the state, hotend and bed temperatures (tap one to set it) and job
+progress with pause and cancel. It also has preheat buttons, homing, a jog pad, fan and motor switches, a
+G-code console and an emergency stop. Moving is locked while a print runs.
 With Moonraker the app uses Moonraker's own API, because its OctoPrint emulation cannot pause or cancel.
+The camera comes from Moonraker's webcam list (as set up in Mainsail or Fluidd), the usual
+`/webcam/?action=stream` path that Rinkhals serves, or OctoPrint's webcam settings; any MJPEG or snapshot
+address can also be entered for the printer.
 Print servers are usually reached over plain HTTP on the local network, so the app allows cleartext HTTP. The
 API key is stored in the app's private storage.
 
@@ -121,11 +144,13 @@ secrets: `ANDSLICE_KEYSTORE_BASE64` (`base64 -w0 release.jks`), `ANDSLICE_KEYSTO
 | `native/src/jni_bridge.cpp` | JNI entry points for `NativeEngine.kt` |
 | `native/src/stubs/` | Stand-ins for the parts of libslic3r that are not built (see below) |
 | `scripts/gen-settings-layout.py` | Extracts the settings pages and groups from PrusaSlicer's `Tab.cpp` into `settings_layout.json` |
+| `scripts/update-vendor-profiles.py` | Copies PrusaSlicer's FFF vendor profiles into the app and writes their catalog |
+| `app/src/main/assets/profiles/CustomPrinter.ini` | Base printer and print profiles for custom printers |
 | `app/src/main/assets/profiles/AnycubicKobra3.ini` | Kobra 3 profiles in PrusaSlicer's config bundle format |
 | `app/src/main/java/.../octoprint/` | OctoPrint and Moonraker clients and network discovery |
 | `app/src/main/java/...` | Compose UI (Material 3), view models, GL view and gestures |
 
-PrusaSlicer's sources are used unmodified apart from three small patches in `patches/`:
+PrusaSlicer's sources are used unmodified apart from four small patches in `patches/`:
 
 - `0001-libvgcode-opengl-es-rgba32f.patch` moves libvgcode's OpenGL ES path to RGBA32F textures, which the
   desktop path already uses since PrusaSlicer issue #12908. Without it, the ES path in 2.9.6 does not compile.
@@ -135,6 +160,8 @@ PrusaSlicer's sources are used unmodified apart from three small patches in `pat
 - `0003-wipe-tower-skip-empty-ramming.patch` skips the ramming block of the wipe tower for single extruder
   multi-material printers whose filaments have no ramming speeds, such as the ACE Pro, which swaps filament
   in firmware. Without it, every tool change would also send `SET_PRESSURE_ADVANCE`.
+- `0004-preset-bundle-public-merge.patch` makes `PresetBundle::merge_presets()` public, so the app can load
+  vendor bundles the way PrusaSlicer's own `load_system_presets()` does.
 
 ## Limitations
 
@@ -146,7 +173,8 @@ PrusaSlicer's sources are used unmodified apart from three small patches in `pat
 - No multi-material painting on the phone; painted 3MF projects from PrusaSlicer slice as painted.
 - 64-bit devices only.
 - Network printing to the Kobra 3 needs Moonraker (for example through Rinkhals) or OctoPrint. Anycubic's own
-  cloud and LAN protocol are not supported.
+  cloud and LAN protocol are not supported, nor PrusaLink or Bambu printers' own protocols.
+- The camera view plays MJPEG streams and JPEG snapshots, not WebRTC or HLS camera services.
 
 ## License
 

@@ -5,16 +5,19 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.l0gic0l.andslice.octoprint.DiscoveredServer
+import io.github.l0gic0l.andslice.octoprint.Heater
 import io.github.l0gic0l.andslice.octoprint.OctoPrintClient
 import io.github.l0gic0l.andslice.octoprint.OctoPrintException
 import io.github.l0gic0l.andslice.octoprint.OctoPrintVersion
 import io.github.l0gic0l.andslice.octoprint.PrinterHost
 import io.github.l0gic0l.andslice.octoprint.PrinterStatus
+import io.github.l0gic0l.andslice.octoprint.Webcam
 import io.github.l0gic0l.andslice.octoprint.discoverOctoPrint
+import io.github.l0gic0l.andslice.printers.PrinterStore
+import io.github.l0gic0l.andslice.printers.SavedPrinter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
@@ -22,18 +25,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
-/** Print server connection (OctoPrint or Moonraker): settings, live status, uploads and job control. */
+/**
+ * The saved printers, and the active one's connection (OctoPrint or Moonraker):
+ * live status, camera, uploads, job and machine control.
+ */
 class PrinterViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val prefs = app.getSharedPreferences("octoprint", Context.MODE_PRIVATE)
+    var printers by mutableStateOf<List<SavedPrinter>>(emptyList()); private set
+    var activeId by mutableStateOf(""); private set
+    val active: SavedPrinter? get() = printers.firstOrNull { it.id == activeId }
 
-    var url by mutableStateOf(prefs.getString(KEY_URL, "") ?: ""); private set
-    var apiKey by mutableStateOf(prefs.getString(KEY_API_KEY, "") ?: ""); private set
+    val url: String get() = active?.url.orEmpty()
+    val apiKey: String get() = active?.apiKey.orEmpty()
     /** Moonraker (and so Rinkhals) usually needs no API key, so the address alone is enough. */
     val configured: Boolean get() = url.isNotBlank()
 
     var version by mutableStateOf<OctoPrintVersion?>(null); private set
     var status by mutableStateOf<PrinterStatus?>(null); private set
+    var webcam by mutableStateOf<Webcam?>(null); private set
     /** Why the last status request failed, or null when it worked. */
     var connectionError by mutableStateOf<String?>(null); private set
 
@@ -48,35 +57,86 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
 
     var message by mutableStateOf<String?>(null)
 
+    init {
+        val state = PrinterStore.load(app)
+        printers = state.printers
+        activeId = state.activeId
+    }
+
     /** The detected server; found again after a failure, in case the printer was off. */
     private var host: PrinterHost? = null
 
     private suspend fun client(): PrinterHost = host ?: PrinterHost.connect(url, apiKey).also { host = it }
 
-    fun saveConnection(newUrl: String, newKey: String) {
-        url = OctoPrintClient.normalizeUrl(newUrl)
-        apiKey = newKey.trim()
-        prefs.edit {
-            putString(KEY_URL, url)
-            putString(KEY_API_KEY, apiKey)
-        }
+    // ------------------------------------------------------------------ saved printers
+
+    private fun store() = PrinterStore.save(getApplication(), PrinterStore.State(printers, activeId))
+
+    /** Drops everything learned about the previous connection. */
+    private fun resetConnection() {
         host = null
         version = null
         status = null
+        webcam = null
         connectionError = null
         testResult = null
     }
 
-    fun forgetConnection() {
-        url = ""
-        apiKey = ""
-        prefs.edit { clear() }
-        host = null
-        version = null
-        status = null
-        connectionError = null
-        testResult = null
+    fun setActive(id: String) {
+        if (id == activeId || printers.none { it.id == id }) return
+        activeId = id
+        store()
+        resetConnection()
     }
+
+    fun addPrinter(printer: SavedPrinter) {
+        printers = printers + printer
+        activeId = printer.id
+        store()
+        resetConnection()
+    }
+
+    /** Replaces the saved printer with the same id. */
+    fun updatePrinter(printer: SavedPrinter) {
+        val old = printers.firstOrNull { it.id == printer.id } ?: return
+        printers = printers.map { if (it.id == printer.id) printer else it }
+        store()
+        if (printer.id == activeId && (old.url != printer.url || old.apiKey != printer.apiKey || old.webcamUrl != printer.webcamUrl)) {
+            resetConnection()
+        }
+    }
+
+    /** Removes a saved printer; the last one cannot be removed. */
+    fun removePrinter(id: String) {
+        if (printers.size <= 1) return
+        printers = printers.filter { it.id != id }
+        if (activeId == id) {
+            activeId = printers.first().id
+            resetConnection()
+        }
+        store()
+    }
+
+    /** Changes the profile of the active printer, e.g. to another nozzle variant. */
+    fun setActivePreset(preset: String) {
+        active?.let { if (it.preset != preset) updatePrinter(it.copy(preset = preset)) }
+    }
+
+    fun saveConnection(newUrl: String, newKey: String, newWebcam: String = active?.webcamUrl.orEmpty()) {
+        val printer = active ?: return
+        updatePrinter(
+            printer.copy(
+                url = if (newUrl.isBlank()) "" else OctoPrintClient.normalizeUrl(newUrl),
+                apiKey = newKey.trim(),
+                webcamUrl = newWebcam.trim(),
+            )
+        )
+        resetConnection()
+    }
+
+    fun forgetConnection() = saveConnection("", "", "")
+
+    // ------------------------------------------------------------------ status
 
     /** Checks the given address and key without saving them. */
     fun testConnection(testUrl: String, testKey: String) {
@@ -106,8 +166,10 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun refreshStatus() {
         if (!configured) return
         try {
-            if (version == null) version = client().version()
-            status = client().status()
+            val c = client()
+            if (version == null) version = c.version()
+            if (webcam == null) webcam = findWebcam(c)
+            status = c.status()
             connectionError = null
         } catch (e: OctoPrintException) {
             connectionError = e.message
@@ -116,13 +178,30 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** The address set for the printer, or what the server reports. */
+    private suspend fun findWebcam(c: PrinterHost): Webcam? {
+        val manual = active?.webcamUrl.orEmpty()
+        if (manual.isNotEmpty()) {
+            val isSnapshot = "snapshot" in manual || manual.endsWith(".jpg", true)
+            return Webcam(streamUrl = manual.takeUnless { isSnapshot }, snapshotUrl = manual.takeIf { isSnapshot })
+        }
+        return try {
+            c.webcam()
+        } catch (e: OctoPrintException) {
+            null
+        }
+    }
+
+    // ------------------------------------------------------------------ jobs
+
     fun upload(file: File, print: Boolean) {
         if (!configured || uploadProgress != null) return
         uploadProgress = 0f
+        val name = active?.name ?: "the printer"
         viewModelScope.launch {
             try {
                 client().upload(file, print) { p -> uploadProgress = p }
-                message = if (print) "Sent ${file.name} to the printer and started the print." else "Uploaded ${file.name} to the printer."
+                message = if (print) "Sent ${file.name} to $name and started the print." else "Uploaded ${file.name} to $name."
                 refreshStatus()
             } catch (e: OctoPrintException) {
                 message = e.message
@@ -136,9 +215,31 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancelPrint() = command { client().cancel() }
 
-    private fun command(block: suspend () -> Unit) {
+    // ------------------------------------------------------------------ machine control
+
+    fun setTemperature(heater: Heater, celsius: Int) = command { client().setTemperature(heater, celsius) }
+
+    /** Heats hotend and bed together, as a preheat button does; 0 turns both off. */
+    fun preheat(hotend: Int, bed: Int) = command {
+        client().setTemperature(Heater.Hotend, hotend)
+        client().setTemperature(Heater.Bed, bed)
+    }
+
+    fun home() = command("Homing…") { client().home() }
+
+    fun jog(x: Double = 0.0, y: Double = 0.0, z: Double = 0.0) = command { client().jog(x, y, z) }
+
+    fun sendGcode(script: String) {
+        if (script.isBlank()) return
+        command("Sent.") { client().sendGcode(script.trim()) }
+    }
+
+    fun emergencyStop() = command("Emergency stop sent.") { client().emergencyStop() }
+
+    private fun command(started: String? = null, block: suspend () -> Unit) {
         viewModelScope.launch {
             try {
+                if (started != null) message = started
                 block()
                 refreshStatus()
             } catch (e: OctoPrintException) {
@@ -146,6 +247,8 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    // ------------------------------------------------------------------ discovery
 
     private var discoveryJob: Job? = null
 
@@ -165,10 +268,5 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
             discovering = false
             if (discovered.isEmpty()) message = "No OctoPrint found on this network. Enter the printer's address instead."
         }
-    }
-
-    companion object {
-        private const val KEY_URL = "url"
-        private const val KEY_API_KEY = "api_key"
     }
 }

@@ -5,6 +5,9 @@
 //                [--extruder OBJECT=N]... [--set key=value]... -o out.gcode model.stl [model2.stl ...]
 //   andslice_cli --bundle Kobra3.ini --list [--printer P]
 //
+// --vendor adds more config bundles (PrusaSlicer vendor profiles), loaded after --bundle.
+// --save TYPE:NAME saves the selected TYPE preset with the --set values as a user preset.
+//
 // --filament can be repeated, once per extruder (ACE slot). --extruder assigns
 // the 1-based extruder N to the object with the 0-based index OBJECT.
 #include <cstdio>
@@ -23,7 +26,7 @@ using nlohmann::json;
 
 static int usage()
 {
-    std::cerr << "usage: andslice_cli --bundle FILE [--printer NAME] [--print NAME] [--filament NAME]...\n"
+    std::cerr << "usage: andslice_cli --bundle FILE [--vendor FILE]... [--printer NAME] [--print NAME] [--filament NAME]...\n"
                  "                    [--extruder OBJECT=N]... [--set KEY=VALUE]... (--list | -o OUT.gcode MODEL...)\n";
     return 2;
 }
@@ -31,6 +34,8 @@ static int usage()
 int main(int argc, char** argv)
 {
     std::string bundle, printer, print, output;
+    std::vector<std::string> vendors;
+    std::string save;
     std::vector<std::string> filaments;
     std::vector<std::pair<std::string, std::string>> overrides;
     std::vector<std::pair<int, int>> extruders;
@@ -41,6 +46,8 @@ int main(int argc, char** argv)
         const std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
         if (a == "--bundle")        bundle = next();
+        else if (a == "--vendor")   vendors.push_back(next());
+        else if (a == "--save")     save = next();
         else if (a == "--printer")  printer = next();
         else if (a == "--print")    print = next();
         else if (a == "--filament") filaments.push_back(next());
@@ -64,19 +71,30 @@ int main(int argc, char** argv)
         else
             models.push_back(a);
     }
-    if (bundle.empty() || (!list && (output.empty() || models.empty())))
+    if (bundle.empty() || (!list && save.empty() && (output.empty() || models.empty())))
         return usage();
 
     try {
         const auto data_dir = boost::filesystem::temp_directory_path() / "andslice-cli";
         Engine& engine = Engine::get();
-        engine.init(data_dir.string(), data_dir.string(), bundle);
+        std::vector<std::string> bundles{ bundle };
+        bundles.insert(bundles.end(), vendors.begin(), vendors.end());
+        engine.init(data_dir.string(), data_dir.string(), bundles);
 
         const json presets = json::parse(engine.presets_json(printer));
         if (printer.empty())  printer  = presets["printer"];
         if (print.empty())    print    = presets["default_print"];
         if (filaments.empty()) filaments.push_back(presets["default_filament"]);
 
+        if (!save.empty()) {
+            const size_t colon = save.find(':');
+            if (colon == std::string::npos)
+                return usage();
+            std::cout << "saved " << engine.save_preset(save.substr(0, colon), save.substr(colon + 1), printer, print,
+                                                         filaments, overrides) << "\n";
+            if (!list)
+                return 0;
+        }
         if (list) {
             std::cout << presets.dump(2) << "\n";
             const json defs = json::parse(engine.option_defs_json());

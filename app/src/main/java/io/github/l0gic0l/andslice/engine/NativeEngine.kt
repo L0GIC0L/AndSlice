@@ -15,7 +15,18 @@ object NativeEngine {
         System.loadLibrary("andslice")
     }
 
-    external fun init(dataDir: String, resourcesDir: String, bundlePath: String)
+    /** Loads [bundles] (config bundle files; the first is the default vendor) and the user's presets. */
+    external fun init(dataDir: String, resourcesDir: String, bundles: Array<String>)
+    /** Reloads the profiles from [bundles], keeping the plate. */
+    external fun loadProfiles(bundles: Array<String>)
+    /** Printer preset of a vendor model's nozzle variant, or "" when its bundle is not loaded. */
+    external fun printerForModel(model: String, variant: String): String
+    /** Saves the selected [type] ("print", "filament", "printer") preset with the overrides of that type as [name]. */
+    external fun savePreset(
+        type: String, name: String, printer: String, print: String, filaments: Array<String>,
+        keys: Array<String>, values: Array<String>,
+    ): String
+    external fun deletePreset(type: String, name: String)
 
     // Profiles
     external fun presetsJson(printer: String): String

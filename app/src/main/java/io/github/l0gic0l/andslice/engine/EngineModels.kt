@@ -13,7 +13,21 @@ data class PresetLists(
     val defaultFilament: String,
     /** Extruders of the printer; the Kobra 3 Combo has one per ACE slot. */
     val extruders: Int,
+    /** PrusaSlicer's generic template filaments, listed after the printer's own [filaments]. */
+    val templateFilaments: List<String> = emptyList(),
+    /** Profiles the user saved, by type. */
+    val user: Map<PresetType, List<String>> = emptyMap(),
+    /** Vendor bundle, model and nozzle variant of the printer. */
+    val vendor: String = "",
+    val model: String = "",
+    val variant: String = "",
+    /** Nozzle variants of the printer's model: variant to printer preset. */
+    val variants: List<Pair<String, String>> = emptyList(),
 ) {
+    val allFilaments: List<String> get() = filaments + templateFilaments
+
+    fun isUser(type: PresetType, name: String) = user[type]?.contains(name) == true
+
     companion object {
         fun parse(json: String): PresetLists {
             val o = JSONObject(json)
@@ -25,6 +39,16 @@ data class PresetLists(
                 defaultPrint = o.optString("default_print"),
                 defaultFilament = o.optString("default_filament"),
                 extruders = o.optInt("extruders", 1).coerceAtLeast(1),
+                templateFilaments = o.optJSONArray("template_filaments")?.strings() ?: emptyList(),
+                user = o.optJSONObject("user")?.let { u ->
+                    PresetType.entries.associateWith { t -> u.optJSONArray(t.name.lowercase())?.strings() ?: emptyList() }
+                } ?: emptyMap(),
+                vendor = o.optString("vendor"),
+                model = o.optString("model"),
+                variant = o.optString("variant"),
+                variants = o.optJSONArray("variants")?.let { a ->
+                    (0 until a.length()).map { a.getJSONObject(it).let { v -> v.getString("variant") to v.getString("preset") } }
+                } ?: emptyList(),
             )
         }
     }

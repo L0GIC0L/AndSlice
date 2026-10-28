@@ -30,6 +30,10 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -134,20 +138,36 @@ fun FilamentSheet(vm: SlicerViewModel, slot: Int, onDismiss: () -> Unit) {
             }
             Text("Material", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
         }
+        var query by remember { mutableStateOf("") }
+        val all = presets.allFilaments
+        if (all.size > 12) SearchField(query, { query = it }, "Search ${all.size} materials")
+        val own = presets.filaments.filter { query.isBlank() || shortFilamentName(it).contains(query, true) }
+        val templates = presets.templateFilaments.filter { query.isBlank() || shortFilamentName(it).contains(query, true) }
         LazyColumn(Modifier.navigationBarsPadding()) {
-            items(presets.filaments, key = { it }) { name ->
-                ListItem(
-                    headlineContent = { Text(shortFilamentName(name)) },
-                    leadingContent = { RadioButton(selected = name == selected, onClick = null) },
-                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.selectable(selected = name == selected, role = Role.RadioButton) {
-                        onDismiss()
-                        if (name != selected) vm.selectFilament(slot, name)
-                    },
-                )
+            items(own, key = { it }) { name -> FilamentRow(name, name == selected) { onDismiss(); if (name != selected) vm.selectFilament(slot, name) } }
+            if (templates.isNotEmpty()) {
+                item(key = "templates") {
+                    Text(
+                        "Generic (PrusaSlicer templates)",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                items(templates, key = { it }) { name -> FilamentRow(name, name == selected) { onDismiss(); if (name != selected) vm.selectFilament(slot, name) } }
             }
         }
     }
+}
+
+@Composable
+private fun FilamentRow(name: String, selected: Boolean, onSelect: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(shortFilamentName(name)) },
+        leadingContent = { RadioButton(selected = selected, onClick = null) },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
+    )
 }
 
 /** Which filament slot prints the object, or each of its parts. */

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <limits>
 
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/log/trivial.hpp>
 #include <LocalesUtils.hpp>
@@ -45,13 +46,14 @@ Engine& Engine::get()
 Engine::Engine() : m_model(std::make_unique<Model>()) {}
 Engine::~Engine() = default;
 
-void Engine::init(const std::string& data_dir, const std::string& resources_dir, const std::string& bundle_path)
+void Engine::init(const std::string& data_dir, const std::string& resources_dir, const std::vector<std::string>& bundles)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     set_logging_level(2); // warnings and errors only
     set_data_dir(data_dir);
     set_resources_dir(resources_dir);
     boost::filesystem::create_directories(data_dir);
+    m_data_dir = data_dir;
 
     // Start from an empty plate; init runs once per app process (or per test).
     m_model->clear_objects();
@@ -65,10 +67,44 @@ void Engine::init(const std::string& data_dir, const std::string& resources_dir,
         ++m_preview_revision;
     }
 
+    load_profiles_locked(bundles);
+}
+
+void Engine::load_profiles(const std::vector<std::string>& bundles)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    load_profiles_locked(bundles);
+}
+
+void Engine::load_profiles_locked(const std::vector<std::string>& bundles)
+{
+    if (bundles.empty())
+        throw RuntimeError("No printer profiles to load.");
+    // Like PresetBundle::load_system_presets(): the first vendor bundle is loaded directly,
+    // the others into their own bundles that are then merged.
     auto bundle = std::make_unique<PresetBundle>();
     bundle->set_default_suppressed(true);
-    bundle->load_configbundle(bundle_path, PresetBundle::LoadConfigBundleAttribute::LoadSystem,
-                              ForwardCompatibilitySubstitutionRule::EnableSystemSilent);
+    for (size_t i = 0; i < bundles.size(); ++i) {
+        if (i == 0) {
+            bundle->load_configbundle(bundles[i], PresetBundle::LoadConfigBundleAttribute::LoadSystem,
+                                      ForwardCompatibilitySubstitutionRule::EnableSystemSilent);
+        } else {
+            PresetBundle other;
+            other.load_configbundle(bundles[i], PresetBundle::LoadConfigBundleAttribute::LoadSystem,
+                                    ForwardCompatibilitySubstitutionRule::EnableSystemSilent);
+            for (const std::string& name : bundle->merge_presets(std::move(other)))
+                BOOST_LOG_TRIVIAL(warning) << "Preset " << name << " of " << bundles[i] << " exists already";
+        }
+    }
+    bundle->update_system_maps();
+
+    // User presets: saved settings and custom printers, one ini file per preset.
+    PresetsConfigSubstitutions substitutions;
+    for (auto [collection, subdir] : { std::pair<PresetCollection*, const char*>{ &bundle->prints, "print" },
+                                       { &bundle->filaments, "filament" }, { &bundle->printers, "printer" } }) {
+        boost::filesystem::create_directories(boost::filesystem::path(m_data_dir) / subdir);
+        collection->load_presets(m_data_dir, subdir, substitutions, ForwardCompatibilitySubstitutionRule::EnableSilent);
+    }
     m_bundle = std::move(bundle);
 
     // Loading a system bundle selects nothing. Select the first printer and a
@@ -81,10 +117,11 @@ void Engine::init(const std::string& data_dir, const std::string& resources_dir,
                 return p.name;
         return c.first_visible().name;
     };
-    // The default printer is the first variant of the first model, as in PrusaSlicer's wizard.
+    // The default printer is the first variant of the first bundle's first model, as in PrusaSlicer's wizard.
     std::string printer = first_visible(b.printers);
-    if (!b.vendors.empty() && !b.vendors.begin()->second.models.empty()) {
-        const VendorProfile::PrinterModel& model = b.vendors.begin()->second.models.front();
+    const auto first_vendor = b.vendors.find(boost::filesystem::path(bundles.front()).stem().string());
+    if (first_vendor != b.vendors.end() && !first_vendor->second.models.empty()) {
+        const VendorProfile::PrinterModel& model = first_vendor->second.models.front();
         for (const Preset& p : b.printers)
             if (!model.variants.empty() && p.config.opt_string("printer_model") == model.id &&
                 p.config.opt_string("printer_variant") == model.variants.front().name) {
@@ -126,12 +163,112 @@ std::string Engine::presets_json(const std::string& printer)
     out["printer"]   = selected.name;
     out["printers"]  = preset_names(m_bundle->printers, false);
     out["prints"]    = preset_names(m_bundle->prints, true);
-    out["filaments"] = preset_names(m_bundle->filaments, true);
+    // Since PrusaSlicer 2.7 filament compatibility is kept per extruder, not on the presets.
+    json filaments = json::array();
+    json templates = json::array();
+    if (!m_bundle->extruders_filaments.empty())
+        for (const Filament& f : m_bundle->extruders_filaments.front()) {
+            const Preset& p = *f.preset;
+            if (p.is_default || !p.is_visible || !f.is_compatible)
+                continue;
+            // Generic template filaments are listed apart from the printer's own.
+            (p.vendor && p.vendor->templates_profile ? templates : filaments).push_back(p.name);
+        }
+    out["filaments"] = filaments;
+    out["template_filaments"] = templates;
     out["default_print"]    = selected.config.opt_string("default_print_profile");
     const auto* def_fil = selected.config.option<ConfigOptionStrings>("default_filament_profile");
     out["default_filament"] = def_fil && !def_fil->values.empty() ? def_fil->values.front() : std::string();
     out["extruders"] = selected.config.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
+
+    json user;
+    for (auto [collection, key] : { std::pair<const PresetCollection*, const char*>{ &m_bundle->prints, "print" },
+                                    { &m_bundle->filaments, "filament" }, { &m_bundle->printers, "printer" } }) {
+        json names = json::array();
+        for (const Preset& p : *collection)
+            if (p.is_user() && !p.is_external)
+                names.push_back(p.name);
+        user[key] = names;
+    }
+    out["user"] = user;
+
+    // The printer's vendor model and its nozzle variants. A user printer reports those of its parent.
+    const Preset* system = selected.is_system ? &selected : m_bundle->printers.get_preset_parent(selected);
+    out["vendor"]  = system && system->vendor ? system->vendor->id : std::string();
+    out["model"]   = selected.config.opt_string("printer_model");
+    out["variant"] = selected.config.opt_string("printer_variant");
+    json variants = json::array();
+    if (system && system->vendor) {
+        for (const VendorProfile::PrinterModel& model : system->vendor->models)
+            if (model.id == system->config.opt_string("printer_model"))
+                for (const VendorProfile::PrinterVariant& v : model.variants)
+                    if (const Preset* p = m_bundle->printers.find_system_preset_by_model_and_variant(model.id, v.name))
+                        variants.push_back({ {"variant", v.name}, {"preset", p->name} });
+    }
+    out["variants"] = variants;
     return out.dump();
+}
+
+std::string Engine::printer_for_model(const std::string& model, const std::string& variant)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const Preset* p = m_bundle->printers.find_system_preset_by_model_and_variant(model, variant);
+    return p ? p->name : std::string();
+}
+
+static PresetCollection& collection_of(PresetBundle& bundle, const std::string& type)
+{
+    if (type == "print")    return bundle.prints;
+    if (type == "filament") return bundle.filaments;
+    if (type == "printer")  return bundle.printers;
+    throw RuntimeError("Unknown profile type: " + type);
+}
+
+std::string Engine::save_preset(const std::string& type, const std::string& name, const std::string& printer,
+                                const std::string& print, const std::vector<std::string>& filaments,
+                                const std::vector<std::pair<std::string, std::string>>& overrides)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::string trimmed = name;
+    boost::algorithm::trim(trimmed);
+    if (trimmed.empty())
+        throw RuntimeError("The profile needs a name.");
+    PresetCollection& collection = collection_of(*m_bundle, type);
+    if (const Preset* existing = collection.find_preset(trimmed); existing && !existing->is_user())
+        throw RuntimeError("A built-in profile is called \"" + trimmed + "\". Pick another name.");
+
+    resolve_config(printer, print, filaments);
+    DynamicPrintConfig& edited = collection.get_edited_preset().config;
+    for (const auto& [key, value] : overrides) {
+        if (!edited.has(key))
+            continue; // the override belongs to another profile type
+        ConfigSubstitutionContext ctx(ForwardCompatibilitySubstitutionRule::Disable);
+        edited.set_deserialize(key, value, ctx);
+        // A filament profile holds one value per option; multi-extruder overrides keep the first.
+        if (type == "filament")
+            if (auto* vec = dynamic_cast<ConfigOptionVectorBase*>(edited.option(key)); vec && vec->size() > 1)
+                vec->resize(1);
+    }
+    // Saving inserts into the filament collection; ExtruderFilaments point into it.
+    m_bundle->cache_extruder_filaments_names();
+    collection.save_current_preset(trimmed);
+    m_bundle->reset_extruder_filaments();
+    m_bundle->update_compatible(PresetSelectCompatibleType::Never);
+    return trimmed;
+}
+
+void Engine::delete_preset(const std::string& type, const std::string& name)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    PresetCollection& collection = collection_of(*m_bundle, type);
+    const Preset* preset = collection.find_preset(name);
+    if (preset == nullptr || !preset->is_user())
+        throw RuntimeError("Only your own profiles can be deleted.");
+    // ExtruderFilaments point into the filament collection, which is about to change.
+    m_bundle->cache_extruder_filaments_names();
+    collection.delete_preset(name);
+    m_bundle->reset_extruder_filaments();
+    m_bundle->update_compatible(PresetSelectCompatibleType::Never);
 }
 
 DynamicPrintConfig Engine::resolve_config(const std::string& printer, const std::string& print,

@@ -18,6 +18,7 @@ private class FakeMoonraker {
     val requests get() = server.requests
     var state = "printing"
     var klippy = "ready"
+    var webcams = "[]"
 
     fun close() = server.close()
 
@@ -31,6 +32,8 @@ private class FakeMoonraker {
             "heater_bed":{"temperature":59.9,"target":60.0}}}}"""
         r.path == "/server/files/upload" && r.method == "POST" -> 201 to """{"result":{"item":{"path":"cube.gcode"}}}"""
         r.path == "/printer/print/pause" || r.path == "/printer/print/resume" -> 200 to """{"result":"ok"}"""
+        r.path == "/server/webcams/list" -> 200 to """{"result":{"webcams":$webcams}}"""
+        r.path.startsWith("/printer/gcode/script") || r.path == "/printer/emergency_stop" -> 200 to """{"result":"ok"}"""
         r.path == "/printer/print/cancel" && state == "standby" ->
             400 to """{"error":{"code":400,"message":"Print is not active"}}"""
         r.path == "/printer/print/cancel" -> 200 to """{"result":"ok"}"""
@@ -123,5 +126,40 @@ class MoonrakerClientTest {
         } catch (e: OctoPrintException) {
             assertEquals("Print is not active", e.message)
         }
+    }
+
+    @Test
+    fun findsConfiguredWebcam() = runBlocking {
+        server.webcams = """[{"name":"cam","enabled":true,"stream_url":"/webcam/?action=stream",
+            "snapshot_url":"/webcam/?action=snapshot","flip_horizontal":true,"rotation":90}]"""
+        val cam = MoonrakerClient(server.url, "").webcam()!!
+        assertEquals("${server.url}/webcam/?action=stream", cam.streamUrl)
+        assertEquals("${server.url}/webcam/?action=snapshot", cam.snapshotUrl)
+        assertTrue(cam.flipHorizontal)
+        assertEquals(90, cam.rotation)
+    }
+
+    @Test
+    fun fallsBackToTheUsualWebcamPath() = runBlocking {
+        val cam = MoonrakerClient(server.url, "").webcam()!!
+        assertEquals("${server.url}/webcam/?action=stream", cam.streamUrl)
+    }
+
+    @Test
+    fun sendsControlGcode() = runBlocking {
+        val client = MoonrakerClient(server.url, "")
+        client.setTemperature(Heater.Bed, 60)
+        client.home()
+        client.jog(x = 10.0)
+        client.jog(z = -0.1)
+        val scripts = server.requests.filter { it.path.startsWith("/printer/gcode/script") }
+            .map { java.net.URLDecoder.decode(it.path.substringAfter("script="), "UTF-8") }
+        assertEquals(listOf("M140 S60", "G28", "G91\nG1 X10 F6000\nG90", "G91\nG1 Z-0.1 F600\nG90"), scripts)
+    }
+
+    @Test
+    fun emergencyStop() = runBlocking {
+        MoonrakerClient(server.url, "").emergencyStop()
+        assertTrue(server.requests.any { it.method == "POST" && it.path == "/printer/emergency_stop" })
     }
 }

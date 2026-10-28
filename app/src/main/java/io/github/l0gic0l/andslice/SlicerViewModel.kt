@@ -21,6 +21,8 @@ import io.github.l0gic0l.andslice.engine.PresetType
 import io.github.l0gic0l.andslice.engine.PreviewInfo
 import io.github.l0gic0l.andslice.engine.SliceResult
 import io.github.l0gic0l.andslice.engine.VIEW_TYPE_TOOL
+import io.github.l0gic0l.andslice.printers.PrinterStore
+import io.github.l0gic0l.andslice.printers.SavedPrinter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,6 +37,8 @@ enum class ViewMode { Plate, Preview }
 class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("andslice", Context.MODE_PRIVATE)
+    /** Bundles loaded in the engine, as asset paths; set on the engine's thread during start-up. */
+    @Volatile private var loadedBundles: List<String> = BASE_BUNDLES
     /** Completed once the native engine has loaded the profiles; engine calls wait for it. */
     private val engineReady = CompletableDeferred<Unit>()
 
@@ -102,18 +106,19 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------ setup
 
     private fun initEngine(app: Application) {
-        val profiles = File(app.filesDir, "profiles").apply { mkdirs() }
-        val bundle = File(profiles, BUNDLE_ASSET.substringAfterLast('/'))
-        app.assets.open(BUNDLE_ASSET).use { input -> bundle.outputStream().use { input.copyTo(it) } }
+        // Built-in bundles, then the vendor bundles of the saved printers.
+        loadedBundles = (BASE_BUNDLES + PrinterStore.bundles(app)).distinct()
         val dataDir = File(app.filesDir, "prusaslicer").apply { mkdirs() }
         val resources = File(app.filesDir, "resources").apply { mkdirs() }
-        NativeEngine.init(dataDir.absolutePath, resources.absolutePath, bundle.absolutePath)
+        NativeEngine.init(dataDir.absolutePath, resources.absolutePath, bundleFiles(loadedBundles))
 
         val defs = OptionDefs.parse(NativeEngine.optionDefsJson())
         val savedOverrides = JSONObject(prefs.getString(KEY_OVERRIDES, "{}") ?: "{}")
         val restored = savedOverrides.keys().asSequence().associateWith { savedOverrides.getString(it) }
 
-        val savedPrinter = prefs.getString(KEY_PRINTER, "") ?: ""
+        // The active saved printer decides the printer profile.
+        val store = PrinterStore.load(app)
+        val savedPrinter = store.printers.firstOrNull { it.id == store.activeId }?.preset ?: ""
         var lists = PresetLists.parse(NativeEngine.presetsJson(savedPrinter))
         if (savedPrinter.isNotEmpty() && savedPrinter !in lists.printers) {
             lists = PresetLists.parse(NativeEngine.presetsJson(""))
@@ -122,8 +127,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         val pr = prefs.getString(KEY_PRINT, "")?.takeIf { it in lists.prints } ?: lists.defaultPrint.ifEmpty { lists.prints.first() }
         val savedFilaments = prefs.getString(KEY_FILAMENTS, null)?.let { JSONArray(it).strings() }
             ?: listOfNotNull(prefs.getString(KEY_FILAMENT, null))
-        val fi = fitSlots(savedFilaments.filter { it in lists.filaments }, lists.extruders,
-                          lists.defaultFilament.ifEmpty { lists.filaments.first() })
+        val fi = fitSlots(savedFilaments.filter { it in lists.allFilaments }, lists.extruders, defaultFilament(lists))
         val savedColors = prefs.getString(KEY_COLORS, null)?.let { JSONArray(it).strings() } ?: emptyList()
         NativeEngine.setPrinter(p)
         val cfg = loadConfig(p, pr, fi)
@@ -144,6 +148,17 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             redraw()
         }
     }
+
+    /** Copies bundles from the assets to files the engine can read; returns their paths. */
+    private fun bundleFiles(bundles: List<String>): Array<String> = bundles.map { asset ->
+        val file = File(getApplication<Application>().filesDir, asset)
+        file.parentFile?.mkdirs()
+        getApplication<Application>().assets.open(asset).use { input -> file.outputStream().use { input.copyTo(it) } }
+        file.absolutePath
+    }.toTypedArray()
+
+    private fun defaultFilament(lists: PresetLists) =
+        lists.defaultFilament.takeIf { it in lists.allFilaments } ?: lists.allFilaments.firstOrNull() ?: ""
 
     private fun loadConfig(printer: String, print: String, filaments: List<String>): Map<String, String> {
         val o = JSONObject(NativeEngine.configJson(printer, print, filaments.toTypedArray()))
@@ -181,12 +196,13 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ presets
 
-    fun selectPrinter(name: String) = launchEngine {
+    fun selectPrinter(name: String) = launchEngine { selectPrinterNow(name) }
+
+    private suspend fun selectPrinterNow(name: String) {
         val lists = PresetLists.parse(NativeEngine.presetsJson(name))
         NativeEngine.setPrinter(name)
         val newPrint = print.takeIf { it in lists.prints } ?: lists.defaultPrint.ifEmpty { lists.prints.first() }
-        val newFilaments = fitSlots(filaments.filter { it in lists.filaments }, lists.extruders,
-                                    lists.defaultFilament.ifEmpty { lists.filaments.first() })
+        val newFilaments = fitSlots(filaments.filter { it in lists.allFilaments }, lists.extruders, defaultFilament(lists))
         val cfg = loadConfig(name, newPrint, newFilaments)
         val colors = slotColorsFor(lists.extruders, if (lists.extruders == extruderCount) slotColors else emptyList(), cfg)
         val objs = PlateObject.parseList(NativeEngine.objectsJson())
@@ -206,6 +222,94 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun selectPrint(name: String) = changePresets(print = name, reset = PresetType.Print)
+
+    // ------------------------------------------------------------------ printers and profiles
+
+    /** Loads a vendor bundle into the engine unless it is loaded already (this can take a few seconds). */
+    private suspend fun ensureBundle(bundle: String) {
+        if (bundle.isEmpty() || bundle in loadedBundles) return
+        withContext(Dispatchers.Main) { busyMessage = "Loading printer profiles…" }
+        try {
+            val bundles = loadedBundles + bundle
+            NativeEngine.loadProfiles(bundleFiles(bundles))
+            loadedBundles = bundles
+        } finally {
+            withContext(Dispatchers.Main) { busyMessage = null }
+        }
+    }
+
+    /** Slices for [printer]: loads its vendor profiles when needed and selects its preset. */
+    fun useSavedPrinter(printer: SavedPrinter) = launchEngine {
+        ensureBundle(printer.bundle)
+        if (printer.preset != this.printer || presets?.printer != printer.preset) selectPrinterNow(printer.preset)
+    }
+
+    /** The printer preset of a vendor's model and nozzle, loading the vendor's profiles first. */
+    suspend fun findPrinterPreset(bundle: String, model: String, variant: String): String {
+        engineReady.await()
+        return withContext(Dispatchers.Default) {
+            ensureBundle(bundle)
+            NativeEngine.printerForModel(model, variant)
+        }
+    }
+
+    /** Saves a printer without a vendor profile as a user printer preset; returns its name. */
+    suspend fun createCustomPrinter(name: String, settings: Map<String, String>): String {
+        engineReady.await()
+        return withContext(Dispatchers.Default) {
+            val keys = settings.keys.toTypedArray()
+            NativeEngine.savePreset(
+                "printer", name, CUSTOM_PRINTER_BASE, CUSTOM_PRINT, arrayOf(CUSTOM_FILAMENT),
+                keys, keys.map { settings.getValue(it) }.toTypedArray(),
+            )
+        }
+    }
+
+    /**
+     * Saves the selected [type] profile with the changes made to it as the user profile [name],
+     * then uses it. Returns the name; for a printer profile the caller updates its saved printer.
+     */
+    suspend fun saveUserPreset(type: PresetType, name: String): String {
+        engineReady.await()
+        val defs = optionDefs ?: error("Profiles are not loaded yet.")
+        val own = overrides.filterKeys { defs.typeOf(it) == type }
+        val saved = withContext(Dispatchers.Default) {
+            NativeEngine.savePreset(
+                type.name.lowercase(), name, printer, print, filaments.toTypedArray(),
+                own.keys.toTypedArray(), own.values.toTypedArray(),
+            )
+        }
+        overrides = overrides - own.keys
+        when (type) {
+            PresetType.Print -> changePresets(print = saved, reset = PresetType.Print)
+            PresetType.Filament -> changePresets(filaments = filaments.toMutableList().also { it[0] = saved }, reset = PresetType.Filament)
+            PresetType.Printer -> Unit // the saved printer switches to it
+        }
+        refreshPresetLists()
+        return saved
+    }
+
+    /** Deletes one of the user's own profiles; selections fall back to the defaults. */
+    fun deleteUserPreset(type: PresetType, name: String) = launchEngine {
+        NativeEngine.deletePreset(type.name.lowercase(), name)
+        val lists = PresetLists.parse(NativeEngine.presetsJson(printer))
+        withContext(Dispatchers.Main) {
+            presets = lists
+            message = "Deleted \"$name\"."
+        }
+        when (type) {
+            PresetType.Print -> if (print == name) changePresets(print = lists.defaultPrint.ifEmpty { lists.prints.first() }, reset = type)
+            PresetType.Filament -> if (name in filaments) {
+                changePresets(filaments = filaments.map { if (it == name) defaultFilament(lists) else it }, reset = type)
+            }
+            PresetType.Printer -> Unit
+        }
+    }
+
+    private fun refreshPresetLists() = launchEngine {
+        val lists = PresetLists.parse(NativeEngine.presetsJson(printer))
+        withContext(Dispatchers.Main) { presets = lists }
+    }
 
     /** Picks the filament preset of one slot (0-based). */
     fun selectFilament(slot: Int, name: String) =
@@ -592,6 +696,11 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         const val BUNDLE_ASSET = "profiles/AnycubicKobra3.ini"
+        /** Always loaded: AndSlice's Kobra 3 profiles, the custom printer base and PrusaSlicer's generic filaments. */
+        val BASE_BUNDLES = listOf(BUNDLE_ASSET, "profiles/CustomPrinter.ini", "profiles/vendors/Templates.ini")
+        const val CUSTOM_PRINTER_BASE = "Custom printer"
+        const val CUSTOM_PRINT = "0.20mm Standard @Custom"
+        const val CUSTOM_FILAMENT = "Generic PLA @Template"
         val MODEL_EXTENSIONS = setOf("stl", "3mf", "obj", "amf")
         /** Keys behind the quick settings bar, kept when the print profile changes. */
         val QUICK_SETTINGS = setOf("support_material", "support_material_buildplate_only", "fill_density", "brim_width")

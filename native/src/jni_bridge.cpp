@@ -1,6 +1,7 @@
 // JNI entry points for io.github.l0gic0l.andslice.engine.NativeEngine.
 #include <jni.h>
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -89,11 +90,41 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
 
 // ------------------------------------------------------------------- profiles
 
-JNIEXPORT void JNICALL FN(init)(JNIEnv* env, jobject, jstring data_dir, jstring resources_dir, jstring bundle)
+JNIEXPORT void JNICALL FN(init)(JNIEnv* env, jobject, jstring data_dir, jstring resources_dir, jobjectArray bundles)
 {
     guarded_void(env, [&] {
-        Engine::get().init(to_string(env, data_dir), to_string(env, resources_dir), to_string(env, bundle));
+        Engine::get().init(to_string(env, data_dir), to_string(env, resources_dir), to_strings(env, bundles));
     });
+}
+
+JNIEXPORT void JNICALL FN(loadProfiles)(JNIEnv* env, jobject, jobjectArray bundles)
+{
+    guarded_void(env, [&] { Engine::get().load_profiles(to_strings(env, bundles)); });
+}
+
+JNIEXPORT jstring JNICALL FN(printerForModel)(JNIEnv* env, jobject, jstring model, jstring variant)
+{
+    return guarded(env, [&] {
+        return to_jstring(env, Engine::get().printer_for_model(to_string(env, model), to_string(env, variant)));
+    }, (jstring) nullptr);
+}
+
+JNIEXPORT jstring JNICALL FN(savePreset)(JNIEnv* env, jobject, jstring type, jstring name, jstring printer, jstring print,
+                                        jobjectArray filaments, jobjectArray keys, jobjectArray values)
+{
+    return guarded(env, [&] {
+        const std::vector<std::string> k = to_strings(env, keys), v = to_strings(env, values);
+        std::vector<std::pair<std::string, std::string>> overrides;
+        for (size_t i = 0; i < std::min(k.size(), v.size()); ++i)
+            overrides.emplace_back(k[i], v[i]);
+        return to_jstring(env, Engine::get().save_preset(to_string(env, type), to_string(env, name), to_string(env, printer),
+                                                         to_string(env, print), to_strings(env, filaments), overrides));
+    }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(deletePreset)(JNIEnv* env, jobject, jstring type, jstring name)
+{
+    guarded_void(env, [&] { Engine::get().delete_preset(to_string(env, type), to_string(env, name)); });
 }
 
 JNIEXPORT jstring JNICALL FN(presetsJson)(JNIEnv* env, jobject, jstring printer)

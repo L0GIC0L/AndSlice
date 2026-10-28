@@ -25,12 +25,57 @@ class EngineTest {
     fun setUp() {
         dir.deleteRecursively()
         dir.mkdirs()
-        val bundle = File(dir, "bundle.ini")
-        context.assets.open(SlicerViewModel.BUNDLE_ASSET).use { input -> bundle.outputStream().use { input.copyTo(it) } }
-        NativeEngine.init(File(dir, "data").path, File(dir, "resources").path, bundle.path)
+        NativeEngine.init(File(dir, "data").path, File(dir, "resources").path, bundles(SlicerViewModel.BASE_BUNDLES))
         presets = PresetLists.parse(NativeEngine.presetsJson(""))
         NativeEngine.setPrinter(presets.printer)
         NativeEngine.clearPlate()
+    }
+
+    /** Copies bundles from the assets, as the app does. */
+    private fun bundles(assets: List<String>) = assets.map { asset ->
+        val file = File(dir, asset).apply { parentFile?.mkdirs() }
+        context.assets.open(asset).use { input -> file.outputStream().use { input.copyTo(it) } }
+        file.path
+    }.toTypedArray()
+
+    @Test
+    fun loadsVendorProfilesOnDemand() {
+        assertEquals("", NativeEngine.printerForModel("ENDER3V2NEO", "0.4"))
+        NativeEngine.loadProfiles(bundles(SlicerViewModel.BASE_BUNDLES + "profiles/vendors/Creality.ini"))
+        val preset = NativeEngine.printerForModel("ENDER3V2NEO", "0.4")
+        assertTrue(preset, preset.startsWith("Creality Ender-3 V2 Neo"))
+        val lists = PresetLists.parse(NativeEngine.presetsJson(preset))
+        assertEquals(preset, lists.printer)
+        assertTrue(lists.prints.isNotEmpty())
+        assertTrue(lists.allFilaments.isNotEmpty())
+        // The Kobra 3 keeps its own filaments only.
+        assertTrue(PresetLists.parse(NativeEngine.presetsJson("Anycubic Kobra 3 0.4 nozzle")).templateFilaments.isEmpty())
+    }
+
+    @Test
+    fun savesCustomPrinterAndUserProfiles() {
+        val printer = NativeEngine.savePreset(
+            "printer", "Test printer", SlicerViewModel.CUSTOM_PRINTER_BASE, SlicerViewModel.CUSTOM_PRINT,
+            arrayOf(SlicerViewModel.CUSTOM_FILAMENT), arrayOf("bed_shape", "nozzle_diameter"), arrayOf("0x0,180x0,180x180,0x180", "0.6"),
+        )
+        var lists = PresetLists.parse(NativeEngine.presetsJson(printer))
+        assertEquals(printer, lists.printer)
+        assertTrue(lists.isUser(io.github.l0gic0l.andslice.engine.PresetType.Printer, printer))
+        assertTrue(lists.templateFilaments.contains(SlicerViewModel.CUSTOM_FILAMENT))
+
+        val print = NativeEngine.savePreset(
+            "print", "My print", printer, SlicerViewModel.CUSTOM_PRINT, arrayOf(SlicerViewModel.CUSTOM_FILAMENT),
+            arrayOf("perimeters", "fill_density"), arrayOf("4", "35%"),
+        )
+        val config = org.json.JSONObject(NativeEngine.configJson(printer, print, arrayOf(SlicerViewModel.CUSTOM_FILAMENT)))
+        assertEquals("4", config.getString("perimeters"))
+        assertEquals("35%", config.getString("fill_density"))
+        assertEquals("0x0,180x0,180x180,0x180", config.getString("bed_shape"))
+        lists = PresetLists.parse(NativeEngine.presetsJson(printer))
+        assertTrue(lists.prints.contains(print))
+
+        NativeEngine.deletePreset("print", print)
+        assertTrue(!PresetLists.parse(NativeEngine.presetsJson(printer)).prints.contains(print))
     }
 
     @Test

@@ -1,6 +1,11 @@
 package io.github.l0gic0l.andslice.ui
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,7 +35,6 @@ import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Park
-import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,6 +69,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.l0gic0l.andslice.PrinterViewModel
 import io.github.l0gic0l.andslice.SlicerViewModel
 import io.github.l0gic0l.andslice.engine.PlateObject
 import java.util.Locale
@@ -99,27 +104,43 @@ fun ChoiceSheet(title: String, choices: List<Choice>, selected: String, onDismis
     }
 }
 
+/**
+ * Profile chips and quick settings under the plate. With [wide] (tablets, unfolded
+ * foldables) the chips wrap in a side panel instead of scrolling in a bar.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PlateBottomBar(vm: SlicerViewModel) {
+fun PlateBottomBar(vm: SlicerViewModel, printers: PrinterViewModel, onAddPrinter: () -> Unit, wide: Boolean = false) {
     val presets = vm.presets ?: return
     var sheet by remember { mutableStateOf<String?>(null) }
 
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp)) {
-            // Profiles
+    @Composable
+    fun ChipRow(content: @Composable () -> Unit) {
+        if (wide) {
+            FlowRow(
+                Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) { content() }
+        } else {
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                PickerChip(Icons.Default.RadioButtonChecked, shortPresetName(vm.printer), "Printer profile") { sheet = "printer" }
+            ) { content() }
+        }
+    }
+
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth().then(if (wide) Modifier else Modifier.navigationBarsPadding()).padding(vertical = 8.dp)) {
+            // Profiles
+            ChipRow {
+                val printerName = printers.active?.name ?: shortPresetName(vm.printer)
+                val nozzle = presets.variant.takeIf { presets.variants.size > 1 }?.let { " · $it" }.orEmpty()
+                PickerChip(Icons.Default.Print, printerName + nozzle, "Printer profile") { sheet = "printer" }
                 PickerChip(Icons.Default.Layers, shortPresetName(vm.print), "Print profile") { sheet = "print" }
                 FilamentChips(vm) { slot -> sheet = "filament:$slot" }
             }
             // Quick settings
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            ChipRow {
                 val supports = supportsChoice(vm)
                 FilterChip(
                     selected = supports != "off",
@@ -149,8 +170,7 @@ fun PlateBottomBar(vm: SlicerViewModel) {
     }
 
     when (val s = sheet) {
-        "printer" -> ChoiceSheet("Printer and nozzle", presets.printers.map { Choice(it, shortPresetName(it), printerDescription(it)) },
-            vm.printer, onDismiss = { sheet = null }, onSelect = vm::selectPrinter)
+        "printer" -> PrinterSheet(vm, printers, onDismiss = { sheet = null }, onAddPrinter = onAddPrinter)
         "print" -> ChoiceSheet("Print profile", presets.prints.map { Choice(it, shortPresetName(it)) }, vm.print,
             onDismiss = { sheet = null }, onSelect = vm::selectPrint)
         else -> if (s != null && s.startsWith("filament:")) {
@@ -166,8 +186,44 @@ fun PlateBottomBar(vm: SlicerViewModel) {
     }
 }
 
-private fun printerDescription(name: String) =
-    if ("Combo" in name) "Kobra 3 with the ACE Pro: four filaments, multi-color" else "Kobra 3, single filament"
+/** The saved printers, and the nozzle variants of the active one. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun PrinterSheet(vm: SlicerViewModel, printers: PrinterViewModel, onDismiss: () -> Unit, onAddPrinter: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
+            Text("Printer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            printers.printers.forEach { p ->
+                val selected = p.id == printers.activeId
+                ListItem(
+                    headlineContent = { Text(p.name) },
+                    supportingContent = { Text(shortPresetName(p.preset) + if (p.url.isNotBlank()) " · connected" else "") },
+                    leadingContent = { RadioButton(selected = selected, onClick = null) },
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    modifier = Modifier.selectable(selected = selected, role = Role.RadioButton) { printers.setActive(p.id) },
+                )
+            }
+            val variants = vm.presets?.variants.orEmpty()
+            if (variants.size > 1) {
+                Text("Nozzle", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 24.dp, top = 12.dp, bottom = 4.dp))
+                FlowRow(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    variants.forEach { (variant, preset) ->
+                        FilterChip(
+                            selected = preset == vm.printer,
+                            onClick = { printers.setActivePreset(preset) },
+                            label = { Text("$variant mm") },
+                        )
+                    }
+                }
+            }
+            TextButton(onClick = { onDismiss(); onAddPrinter() }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Add printer")
+            }
+        }
+    }
+}
 
 private val SUPPORT_CHOICES = listOf(
     Choice("off", "No supports"),

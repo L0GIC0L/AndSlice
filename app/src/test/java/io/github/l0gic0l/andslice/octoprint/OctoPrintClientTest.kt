@@ -31,6 +31,9 @@ private class FakeOctoPrint {
             r.path == "/api/job" -> 200 to """{"job":{"file":{"name":"benchy.gcode"}},
                 "progress":{"completion":42.5,"printTime":600,"printTimeLeft":900},"state":"Printing"}"""
             r.path == "/api/files/local" && r.method == "POST" -> 201 to """{"done":true}"""
+            r.path == "/api/settings" -> 200 to """{"webcam":{"webcamEnabled":true,"streamUrl":"/webcam/?action=stream",
+                "snapshotUrl":"http://cam.local/snap.jpg","flipH":false,"flipV":true,"rotate90":false}}"""
+            r.path.startsWith("/api/printer/") && r.method == "POST" -> 204 to ""
             else -> 404 to ""
         }
     }
@@ -120,5 +123,25 @@ class OctoPrintClientTest {
     fun normalizesAddresses() {
         assertEquals("http://octopi.local", OctoPrintClient.normalizeUrl(" octopi.local/ "))
         assertEquals("https://printer:5000", OctoPrintClient.normalizeUrl("https://printer:5000"))
+    }
+
+    @Test
+    fun readsWebcamSettings() = runBlocking {
+        val cam = OctoPrintClient(server.url, "secret").webcam()!!
+        assertEquals("${server.url}/webcam/?action=stream", cam.streamUrl)
+        assertEquals("http://cam.local/snap.jpg", cam.snapshotUrl)
+        assertTrue(cam.flipVertical)
+    }
+
+    @Test
+    fun controlsThePrinter() = runBlocking {
+        val client = OctoPrintClient(server.url, "secret")
+        client.setTemperature(Heater.Hotend, 215)
+        client.jog(y = -10.0)
+        client.sendGcode("M106 S255\nM107")
+        val posts = server.requests.filter { it.method == "POST" }.associate { it.path to org.json.JSONObject(it.body) }
+        assertEquals(215, posts.getValue("/api/printer/tool").getJSONObject("targets").getInt("tool0"))
+        assertEquals(-10.0, posts.getValue("/api/printer/printhead").getDouble("y"), 1e-9)
+        assertEquals(2, posts.getValue("/api/printer/command").getJSONArray("commands").length())
     }
 }

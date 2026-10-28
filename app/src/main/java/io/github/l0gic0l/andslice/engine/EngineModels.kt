@@ -155,6 +155,12 @@ data class ObjectSettings(
     }
 }
 
+/** From [layer] on, the print uses the 1-based extruders [tools]. */
+data class FilamentChange(val layer: Int, val tools: List<Int>)
+
+/** Filament the 1-based [extruder] prints: length in mm and weight in g. */
+data class SlotUse(val extruder: Int, val mm: Double, val grams: Double)
+
 data class SliceResult(
     val ok: Boolean,
     val canceled: Boolean,
@@ -171,6 +177,12 @@ data class SliceResult(
     val extrudersUsed: List<Int> = emptyList(),
     /** Depth of the printed wipe tower in mm, or 0 when there is none. */
     val wipeTowerDepth: Double = 0.0,
+    /** Print time of each layer, in seconds. */
+    val layerTimes: List<Double> = emptyList(),
+    /** Layers where the filaments printed change from the layer below. */
+    val filamentChanges: List<FilamentChange> = emptyList(),
+    /** Filament each slot uses. */
+    val slots: List<SlotUse> = emptyList(),
 ) {
     companion object {
         fun parse(json: String): SliceResult {
@@ -189,6 +201,20 @@ data class SliceResult(
                 warnings = o.optJSONArray("warnings")?.strings() ?: emptyList(),
                 extrudersUsed = o.optJSONArray("extruders_used")?.let { a -> (0 until a.length()).map { a.getInt(it) } } ?: emptyList(),
                 wipeTowerDepth = o.optJSONObject("wipe_tower")?.optDouble("depth", 0.0) ?: 0.0,
+                layerTimes = o.optJSONArray("layer_times")?.doubles() ?: emptyList(),
+                filamentChanges = o.optJSONArray("filament_changes")?.let { a ->
+                    (0 until a.length()).map { i ->
+                        val c = a.getJSONObject(i)
+                        val tools = c.getJSONArray("tools")
+                        FilamentChange(c.getInt("layer"), (0 until tools.length()).map { tools.getInt(it) })
+                    }
+                } ?: emptyList(),
+                slots = o.optJSONArray("slots")?.let { a ->
+                    (0 until a.length()).map { i ->
+                        val u = a.getJSONObject(i)
+                        SlotUse(u.getInt("extruder"), u.optDouble("mm", 0.0), u.optDouble("g", 0.0))
+                    }
+                } ?: emptyList(),
             )
         }
     }

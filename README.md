@@ -53,7 +53,8 @@ Android 12+ and light and dark themes.
   PrusaSlicer's own tooltips), and search covers all of them.
 - Slicing with progress and cancel, then a layer-by-layer preview with feature, speed, height, width, fan,
   temperature and flow views
-- Print time, filament length, weight and cost estimates
+- Print time, filament length, weight and cost estimates; the time of each layer beside the layer slider,
+  marks on the slider where the filaments change, and the weight each ACE slot prints in the filament view
 - Thumbnails embedded in the G-code for the printer's screen
 - Save the G-code anywhere (USB stick through OTG, Downloads, cloud drives) or share it to another app
 - **OctoPrint and Moonraker:** upload G-code or upload and start the print, then watch temperatures and

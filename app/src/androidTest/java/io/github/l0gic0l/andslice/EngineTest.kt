@@ -180,6 +180,12 @@ class EngineTest {
         )
         assertTrue(result.error ?: "", result.ok)
         assertTrue(File(result.path!!).readText().contains(Regex("^T1$", RegexOption.MULTILINE)))
+        // Preview extras: both slots weighed, the time of every layer, and where filament 2 starts.
+        assertEquals(listOf(1, 2), result.slots.map { it.extruder })
+        assertTrue(result.slots.all { it.grams > 0 })
+        assertEquals(result.layerZs.size, result.layerTimes.size)
+        assertEquals(result.printTimeSeconds, result.layerTimes.sum(), result.printTimeSeconds * 0.02)
+        assertTrue(result.filamentChanges.any { 2 in it.tools })
 
         assertTrue(NativeEngine.paintUndo())
         NativeEngine.paintEnd()

@@ -1890,9 +1890,43 @@ std::string Engine::slice(const SliceRequest& request, const ProgressFn& progres
             result["wipe_tower"] = { {"depth", wt.depth}, {"brim", wt.brim_width}, {"height", wt.height} };
         }
         std::vector<int> used;
-        for (const auto& [extruder, length] : print.print_statistics().filament_stats)
+        json slots = json::array();
+        const auto& diameters = config.option<ConfigOptionFloats>("filament_diameter")->values;
+        const auto& densities = config.option<ConfigOptionFloats>("filament_density")->values;
+        for (const auto& [extruder, length] : print.print_statistics().filament_stats) {
             used.push_back(int(extruder) + 1);
+            // Grams from the length, as PrusaSlicer's estimate does: cross-section times density.
+            const double d = diameters.empty() ? 1.75 : diameters[std::min(size_t(extruder), diameters.size() - 1)];
+            const double density = densities.empty() ? 0. : densities[std::min(size_t(extruder), densities.size() - 1)];
+            const double cm3 = length * M_PI * d * d / 4. / 1000.;
+            slots.push_back({ {"extruder", int(extruder) + 1}, {"mm", length}, {"g", cm3 * density} });
+        }
         result["extruders_used"] = used;
+        result["slots"] = slots;
+
+        // Per layer: the time it takes, and where the filaments printed change, for markers on the layer slider.
+        std::vector<float> layer_times;
+        std::vector<std::set<int>> layer_tools;
+        for (const GCodeProcessorResult::MoveVertex& move : gcode_result.moves) {
+            if (move.layer_id >= layer_times.size()) {
+                layer_times.resize(move.layer_id + 1, 0.f);
+                layer_tools.resize(move.layer_id + 1);
+            }
+            layer_times[move.layer_id] += move.time[size_t(PrintEstimatedStatistics::ETimeMode::Normal)];
+            if (move.type == EMoveType::Extrude && move.delta_extruder > 0.f)
+                layer_tools[move.layer_id].insert(int(move.extruder_id) + 1);
+        }
+        json changes = json::array();
+        const std::set<int>* previous = nullptr;
+        for (size_t layer = 0; layer < layer_tools.size(); ++layer) {
+            if (layer_tools[layer].empty())
+                continue;
+            if (previous != nullptr && *previous != layer_tools[layer])
+                changes.push_back({ {"layer", layer}, {"tools", layer_tools[layer]} });
+            previous = &layer_tools[layer];
+        }
+        result["layer_times"]      = layer_times;
+        result["filament_changes"] = changes;
         auto preview = make_preview(gcode_result, colors);
         result["layers"] = preview_layer_zs(*preview);
         {

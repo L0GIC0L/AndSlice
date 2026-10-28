@@ -1,5 +1,9 @@
 package io.github.l0gic0l.andslice.ui
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.Canvas
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -119,8 +123,9 @@ fun PreviewOverlay(vm: SlicerViewModel, modifier: Modifier = Modifier) {
                 Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 12.dp).width(64.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                LayerLabel(range.last, zs)
+                LayerLabel(range.last, zs, vm.result?.layerTimes?.getOrNull(range.last))
                 Box(Modifier.weight(1f)) {
+                    FilamentChangeMarks(vm, count, Modifier.matchParentSize())
                     RangeSlider(
                         value = range.first.toFloat()..range.last.toFloat(),
                         onValueChange = { v -> vm.changeLayerRange(v.start.roundToInt()..v.endInclusive.roundToInt()) },
@@ -146,12 +151,35 @@ fun PreviewOverlay(vm: SlicerViewModel, modifier: Modifier = Modifier) {
     }
 }
 
+/** Layer number, its height and, for the top layer, the time it takes to print. */
 @Composable
-private fun LayerLabel(layer: Int, zs: List<Double>) {
+private fun LayerLabel(layer: Int, zs: List<Double>, seconds: Double? = null) {
     Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
         Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("${layer + 1}", style = MaterialTheme.typography.labelLarge)
             Text(String.format(Locale.US, "%.2f", zs.getOrElse(layer) { 0.0 }), style = MaterialTheme.typography.labelSmall)
+            seconds?.let { Text(formatDuration(it), style = MaterialTheme.typography.labelSmall) }
+        }
+    }
+}
+
+/**
+ * Marks beside the layer slider where the filaments printed change, in the color of the new
+ * filament: the stripes and color bands of a multi-color print.
+ */
+@Composable
+private fun FilamentChangeMarks(vm: SlicerViewModel, layers: Int, modifier: Modifier) {
+    val changes = vm.result?.filamentChanges.orEmpty()
+    if (changes.isEmpty() || layers < 2) return
+    val colors = vm.slotColors
+    Canvas(modifier.semantics { contentDescription = "${changes.size} filament changes" }) {
+        // The slider's track stops short of its ends by about half a thumb.
+        val inset = 10.dp.toPx()
+        val track = size.height - 2 * inset
+        for (change in changes) {
+            val y = size.height - inset - track * change.layer / (layers - 1)
+            val color = colors.getOrNull((change.tools.firstOrNull() ?: 1) - 1)?.let(::parseHexColor) ?: Color.Gray
+            drawLine(color, Offset(0f, y), Offset(10.dp.toPx(), y), strokeWidth = 3.dp.toPx())
         }
     }
 }
@@ -201,9 +229,12 @@ private fun Legend(vm: SlicerViewModel) {
                     LegendRow(Color(role.color), EXTRUSION_ROLE_NAMES.getOrElse(role.id) { "?" }, formatDuration(role.timeSeconds))
                 }
             } else if (vm.viewType == VIEW_TYPE_TOOL) {
+                // How much each slot prints, so the ACE can be loaded with enough of each.
+                val use = vm.result?.slots.orEmpty().associateBy { it.extruder }
                 info.tools.forEach { (id, color) ->
                     val name = shortFilamentName(vm.filaments.getOrElse(id) { "" })
-                    LegendRow(Color(color), if (vm.multiMaterial) "${id + 1} · $name" else name, "")
+                    val grams = use[id + 1]?.let { String.format(Locale.US, "%.1f g", it.grams) }.orEmpty()
+                    LegendRow(Color(color), if (vm.multiMaterial) "${id + 1} · $name" else name, grams)
                 }
             } else {
                 info.range.asReversed().forEach { (value, color) ->

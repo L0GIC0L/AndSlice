@@ -81,7 +81,7 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
                 navigationIcon = {
                     if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 },
-                title = { Text("Preferences") },
+                title = { Text("App settings") },
             )
         },
     ) { padding ->
@@ -104,8 +104,8 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
                     PrefRow.Segments(
                         "Side panel on large screens",
                         when (prefs.sidePanel) {
-                            PanelMode.Half -> "Half of the screen, with the slicing settings under the profiles"
-                            PanelMode.Narrow -> "A slim panel with the profiles, on screens 840 dp and wider"
+                            PanelMode.Half -> "Half of the screen: the plate and all slicing settings beside the 3D view"
+                            PanelMode.Narrow -> "The same panel 400 dp wide, on screens 840 dp and wider"
                             PanelMode.Off -> "Profiles in a bar under the plate, as on phones"
                         },
                         listOf("Half", "Narrow", "Off"), prefs.sidePanel.ordinal,

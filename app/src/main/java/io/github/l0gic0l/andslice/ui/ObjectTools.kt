@@ -9,6 +9,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.Height
 import androidx.compose.material.icons.filled.LayersClear
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.FilledTonalIconButton
@@ -72,7 +79,11 @@ private fun ToolPanel(modifier: Modifier, content: @Composable () -> Unit) {
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 6.dp,
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Scrolls when the 3D view is short, as on phones in landscape.
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             content()
         }
     }
@@ -216,10 +227,16 @@ private fun AxisRow(label: String, unit: String, value: Double, step: Double, mi
 @Composable
 fun PaintPanel(vm: SlicerViewModel, modifier: Modifier = Modifier) {
     val mode = vm.paintMode ?: return
+    val supports = mode == PaintMode.SUPPORTS
+    // The overhang highlight follows the switches and the angle, once the slider rests.
+    LaunchedEffect(mode, vm.showOverhangs, vm.overhangsOnly, vm.overhangAngle) {
+        delay(150)
+        vm.updateOverhangHighlight()
+    }
     ToolPanel(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (mode == PaintMode.SUPPORTS) "Paint supports" else "Paint filaments",
+                if (supports) "Paint supports" else "Paint filaments",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
@@ -227,9 +244,8 @@ fun PaintPanel(vm: SlicerViewModel, modifier: Modifier = Modifier) {
             IconButton(onClick = vm::clearPaint) { Icon(Icons.Default.LayersClear, "Clear painting") }
             TextButton(onClick = vm::stopPainting) { Text("Done") }
         }
-
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (mode == PaintMode.SUPPORTS) {
+            if (supports) {
                 StateChip(vm, PaintMode.ENFORCE, "Supports", ENFORCER_COLOR)
                 StateChip(vm, PaintMode.BLOCK, "No supports", BLOCKER_COLOR)
             } else {
@@ -248,40 +264,93 @@ fun PaintPanel(vm: SlicerViewModel, modifier: Modifier = Modifier) {
             StateChip(vm, PaintMode.ERASE, "Erase", null)
         }
 
-        SingleChoiceSegmentedButtonRow {
-            SegmentedButton(
-                selected = vm.paintTool == PaintMode.TOOL_BRUSH,
-                onClick = { vm.paintTool = PaintMode.TOOL_BRUSH },
-                shape = SegmentedButtonDefaults.itemShape(0, 2),
-                icon = { Icon(Icons.Default.Brush, null, Modifier.size(18.dp)) },
-            ) { Text("Brush") }
-            SegmentedButton(
-                selected = vm.paintTool == PaintMode.TOOL_FILL,
-                onClick = { vm.paintTool = PaintMode.TOOL_FILL },
-                shape = SegmentedButtonDefaults.itemShape(1, 2),
-                icon = { Icon(Icons.Default.FormatColorFill, null, Modifier.size(18.dp)) },
-            ) { Text("Fill") }
-        }
-        if (vm.paintTool == PaintMode.TOOL_BRUSH) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Size", style = MaterialTheme.typography.labelLarge)
-                Slider(
-                    value = vm.brushRadius,
-                    onValueChange = { vm.brushRadius = (it * 2).roundToInt() / 2f },
-                    valueRange = 0.5f..15f,
-                    modifier = Modifier.weight(1f).semantics { contentDescription = "Brush size" },
-                )
-                Text("${fmt(vm.brushRadius * 2.0, 1)} mm", style = MaterialTheme.typography.labelLarge)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            listOf(
+                Triple(PaintMode.TOOL_BRUSH, "Brush", Icons.Default.Brush),
+                Triple(PaintMode.TOOL_FILL, "Fill", Icons.Default.FormatColorFill),
+                Triple(PaintMode.TOOL_HEIGHT, "Height", Icons.Default.Height),
+            ).forEachIndexed { i, (tool, label, icon) ->
+                SegmentedButton(
+                    selected = vm.paintTool == tool,
+                    onClick = { vm.paintTool = tool },
+                    shape = SegmentedButtonDefaults.itemShape(i, 3),
+                    icon = { Icon(icon, null, Modifier.size(18.dp)) },
+                ) { Text(label, maxLines = 1) }
             }
         }
+        when (vm.paintTool) {
+            PaintMode.TOOL_BRUSH -> {
+                SliderRow("Size", vm.brushRadius * 2, 1f..30f, "${fmt(vm.brushRadius * 2.0, 1)} mm", "Brush size") {
+                    vm.brushRadius = (it * 2).roundToInt() / 4f
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(selected = !vm.brushSphere, onClick = { vm.brushSphere = false }, label = { Text("Circle") })
+                    FilterChip(selected = vm.brushSphere, onClick = { vm.brushSphere = true }, label = { Text("Sphere") })
+                }
+            }
+            PaintMode.TOOL_FILL ->
+                SliderRow("Edge angle", vm.fillAngle, 0f..90f, "${vm.fillAngle.roundToInt()}°", "Fill edge angle") {
+                    vm.fillAngle = it.roundToInt().toFloat()
+                }
+            else ->
+                SliderRow("Band", vm.heightRange, 0.1f..10f, "${fmt(vm.heightRange.toDouble(), 1)} mm", "Band height") {
+                    vm.heightRange = (it * 10).roundToInt() / 10f
+                }
+        }
+
+        if (supports) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(
+                    selected = vm.overhangsOnly,
+                    onClick = { vm.overhangsOnly = !vm.overhangsOnly },
+                    label = { Text("Overhangs only") },
+                )
+                FilterChip(
+                    selected = vm.showOverhangs,
+                    onClick = { vm.showOverhangs = !vm.showOverhangs },
+                    label = { Text("Show overhangs") },
+                    leadingIcon = { Surface(shape = CircleShape, color = OVERHANG_COLOR, modifier = Modifier.size(14.dp)) {} },
+                )
+            }
+            SliderRow("Overhang", vm.overhangAngle, 5f..90f, "${vm.overhangAngle.roundToInt()}°", "Overhang angle") {
+                vm.overhangAngle = it.roundToInt().toFloat()
+            }
+            TextButton(onClick = vm::paintAllOverhangs) {
+                Text(if (vm.paintState == PaintMode.BLOCK) "Block all overhangs" else if (vm.paintState == PaintMode.ERASE) "Erase all overhangs" else "Support all overhangs")
+            }
+        }
+
         Text(
-            if (vm.paintTool == PaintMode.TOOL_BRUSH) "Paint with one finger on the object. Drag beside it to turn the view; two fingers move and zoom."
-            else "Tap an area to fill it up to its sharp edges. Drag beside the object to turn the view.",
+            when (vm.paintTool) {
+                PaintMode.TOOL_BRUSH ->
+                    "Paint with one finger on the object. Drag beside it to turn the view; two fingers move and zoom." +
+                        if (vm.brushSphere) " The sphere also paints faces turned away, such as both sides of a thin wall." else ""
+                PaintMode.TOOL_FILL -> "Tap an area to fill it up to edges sharper than the edge angle."
+                else -> "Touch a height to paint a band around the object there, for stripes of color or support."
+            } + if (supports) " Overhangs are faces pointing down at less than the overhang angle from the bed." else "",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
+
+/** A labeled slider with its value; [onChange] gets the raw slider value. */
+@Composable
+private fun SliderRow(label: String, value: Float, range: ClosedFloatingPointRange<Float>, valueText: String, description: String, onChange: (Float) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(76.dp))
+        Slider(
+            value = value.coerceIn(range),
+            onValueChange = onChange,
+            valueRange = range,
+            modifier = Modifier.weight(1f).semantics { contentDescription = description },
+        )
+        Text(valueText, style = MaterialTheme.typography.labelLarge, modifier = Modifier.widthIn(min = 48.dp))
+    }
+}
+
+// The 3D view's overhang highlight.
+private val OVERHANG_COLOR = Color(0xFFFF9E1A)
 
 // PrusaSlicer's colors for support enforcers and blockers, as the 3D view draws them.
 private val ENFORCER_COLOR = Color(0xFF408CFF)

@@ -10,9 +10,10 @@
 //
 // --filament can be repeated, once per extruder (ACE slot). --extruder assigns
 // the 1-based extruder N to the object with the 0-based index OBJECT.
-// --paint OBJECT=MODE:STATE[:fill] paints the object from straight above its center, as a
-// touch would: MODE is supports or colors, STATE the support type or extruder (0 erases),
-// with an 8 mm brush or, with :fill, a smart fill. :below paints from under the bed instead.
+// --paint OBJECT=MODE:STATE[:OPTION]... paints the object from straight above its center, as a
+// touch would: MODE is supports or colors, STATE the support type or extruder (0 erases), with
+// an 8 mm brush. Options: fill (smart fill), heightN (a band N mm high), below (paint from
+// under the bed), overhangsN (every overhang tilted less than N degrees, instead of a touch).
 #include <cstdio>
 #include <cstring>
 #include <iostream>
@@ -143,13 +144,23 @@ int main(int argc, char** argv)
             const int mode  = spec.rfind("colors", 0) == 0 ? andslice::PaintColors : andslice::PaintSupports;
             const size_t colon = spec.find(':');
             const int state = colon == std::string::npos ? 1 : std::stoi(spec.substr(colon + 1));
-            const int tool  = spec.find(":fill") != std::string::npos ? andslice::PaintFill : andslice::PaintBrush;
+            auto number_after = [&spec](const std::string& tag) {
+                const size_t at = spec.find(":" + tag);
+                return at == std::string::npos ? 0.f : std::stof(spec.substr(at + tag.size() + 1));
+            };
+            andslice::PaintParams params;
+            params.state        = state;
+            params.radius       = 8.f;
+            params.height_range = number_after("height");
+            params.tool = spec.find(":fill") != std::string::npos ? andslice::PaintFill :
+                          params.height_range > 0.f              ? andslice::PaintHeightRange : andslice::PaintBrush;
+            const float overhangs = number_after("overhangs");
             // :below looks up at the object from under the bed.
             const bool  below     = spec.find(":below") != std::string::npos;
             const float camera[3] = { o["offset"][0].get<float>(), o["offset"][1].get<float>(), below ? -500.f : 500.f };
             const float dir[3]    = { 0.f, 0.f, below ? 1.f : -1.f };
             engine.paint_begin(o["id"].get<uint64_t>(), mode);
-            const bool hit = engine.paint_at(camera, dir, 8.f, tool, state, false);
+            const bool hit = overhangs > 0.f ? engine.paint_overhangs(state, overhangs) : engine.paint_at(camera, dir, params, false);
             engine.paint_commit();
             std::cout << "paint " << spec << (hit ? " hit: " : " missed: ") << engine.paint_state_json() << "\n";
             engine.paint_end();

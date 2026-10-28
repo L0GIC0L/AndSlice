@@ -26,25 +26,29 @@ class AppLaunchTest {
         waitForText("The plate is empty", timeoutMillis = 30_000)
         compose.onNodeWithText("Import model").assertExists()
 
-        // Settings show PrusaSlicer's options on its own pages, and search across all of them.
-        compose.onNodeWithContentDescription("Settings").performClick()
+        // Preview has its own place in the navigation bar; with nothing to slice it says so.
+        compose.onNodeWithText("Preview").performClick()
+        waitForText("Add a model to the plate first.")
+
+        // Settings show PrusaSlicer's options on its own pages, and search covers all of them.
+        compose.onNodeWithText("Settings").performClick()
         waitForText("Layer height")
         compose.onNodeWithText("Infill").performClick()
         waitForText("Fill density")
         compose.onNodeWithTag("settings-search").performTextInput("fill_density")
         waitForText("Fill density")
-        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Plate").performClick()
 
         // The printer screen asks for an OctoPrint or Moonraker connection.
         waitForText("The plate is empty")
-        compose.onNodeWithContentDescription("Printer").performClick()
+        compose.onNodeWithText("Printer").performClick()
         waitForText("Connect your printer")
-        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Plate").performClick()
 
-        // App preferences are in the overflow menu on phones.
+        // App settings are in the overflow menu on phones.
         waitForText("The plate is empty")
         compose.onNodeWithContentDescription("More options").performClick()
-        compose.onNodeWithText("Preferences").performClick()
+        compose.onNodeWithText("App settings").performClick()
         waitForText("Theme")
     }
 }

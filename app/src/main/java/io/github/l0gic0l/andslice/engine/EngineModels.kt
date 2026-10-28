@@ -306,6 +306,8 @@ object PaintMode {
 
     const val TOOL_BRUSH = 0
     const val TOOL_FILL = 1
+    /** A horizontal band around the touched height. */
+    const val TOOL_HEIGHT = 2
 
     const val ERASE = 0
     const val ENFORCE = 1
@@ -328,5 +330,22 @@ data class PaintState(val active: Boolean = false, val objectId: Long = -1, val 
     }
 }
 
-/** What a touch on the object paints while painting: [state] with [tool], [radius] mm wide. */
-data class PaintBrush(val state: Int, val radius: Float, val tool: Int)
+/**
+ * What a touch on the object paints: [state] with [tool]. The brush has [radius] mm and is a
+ * [sphere] or a circle; fill stops at edges sharper than [fillAngle]; a height band is
+ * [heightRange] mm high; with [overhangAngle] > 0 only overhangs flatter than it are painted.
+ */
+data class PaintBrush(
+    val state: Int,
+    val radius: Float,
+    val tool: Int,
+    val sphere: Boolean = false,
+    val fillAngle: Float = 30f,
+    val heightRange: Float = 1f,
+    val overhangAngle: Float = 0f,
+) {
+    /** The layout NativeEngine.paintAt expects. */
+    fun params() = floatArrayOf(
+        tool.toFloat(), state.toFloat(), radius, if (sphere) 1f else 0f, fillAngle, heightRange, overhangAngle,
+    )
+}

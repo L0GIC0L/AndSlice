@@ -277,15 +277,37 @@ JNIEXPORT jboolean JNICALL FN(paintBegin)(JNIEnv* env, jobject, jlong id, jint m
     return guarded(env, [&] { return jboolean(Engine::get().paint_begin(uint64_t(id), mode)); }, jboolean(false));
 }
 
-JNIEXPORT jboolean JNICALL FN(paintAt)(JNIEnv* env, jobject, jfloatArray camera, jfloatArray dir, jfloat radius,
-                                      jint tool, jint state, jboolean continue_stroke)
+// params = {tool, state, radius, sphere (0/1), fill angle, height range, overhang angle}
+JNIEXPORT jboolean JNICALL FN(paintAt)(JNIEnv* env, jobject, jfloatArray camera, jfloatArray dir, jfloatArray params,
+                                      jboolean continue_stroke)
 {
     return guarded(env, [&] {
-        float c[3], d[3];
+        if (env->GetArrayLength(params) < 7)
+            throw std::invalid_argument("paintAt needs 7 parameters");
+        float c[3], d[3], p[7];
         env->GetFloatArrayRegion(camera, 0, 3, c);
         env->GetFloatArrayRegion(dir, 0, 3, d);
-        return jboolean(Engine::get().paint_at(c, d, radius, tool, state, continue_stroke));
+        env->GetFloatArrayRegion(params, 0, 7, p);
+        andslice::PaintParams pp;
+        pp.tool           = int(p[0]);
+        pp.state          = int(p[1]);
+        pp.radius         = p[2];
+        pp.sphere         = p[3] != 0.f;
+        pp.fill_angle     = p[4];
+        pp.height_range   = p[5];
+        pp.overhang_angle = p[6];
+        return jboolean(Engine::get().paint_at(c, d, pp, continue_stroke));
     }, jboolean(false));
+}
+
+JNIEXPORT jboolean JNICALL FN(paintOverhangs)(JNIEnv* env, jobject, jint state, jfloat angle)
+{
+    return guarded(env, [&] { return jboolean(Engine::get().paint_overhangs(state, angle)); }, jboolean(false));
+}
+
+JNIEXPORT void JNICALL FN(paintHighlightOverhangs)(JNIEnv* env, jobject, jfloat angle)
+{
+    guarded_void(env, [&] { Engine::get().paint_highlight_overhangs(angle); });
 }
 
 JNIEXPORT void JNICALL FN(paintCommit)(JNIEnv* env, jobject)

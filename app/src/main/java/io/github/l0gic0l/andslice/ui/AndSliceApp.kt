@@ -11,35 +11,24 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.VerticalDivider
-import androidx.compose.runtime.key
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.ui.text.style.TextOverflow
-import io.github.l0gic0l.andslice.engine.PresetType
-import io.github.l0gic0l.andslice.printers.SavedPrinter
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -61,6 +50,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -69,36 +62,51 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.l0gic0l.andslice.PanelMode
 import io.github.l0gic0l.andslice.PreferencesViewModel
 import io.github.l0gic0l.andslice.PrinterViewModel
 import io.github.l0gic0l.andslice.SlicerViewModel
 import io.github.l0gic0l.andslice.ViewMode
+import io.github.l0gic0l.andslice.engine.PresetType
+import io.github.l0gic0l.andslice.printers.SavedPrinter
 import io.github.l0gic0l.andslice.ui.scene.OrbitCamera
 
 private enum class Screen { Slicer, Settings, Printer, AddPrinter, Preferences }
+
+/** Top-level destinations: a navigation bar on phones, a rail on tablets and foldables. */
+private enum class Destination(val label: String, val icon: ImageVector) {
+    Plate("Plate", Icons.Default.ViewInAr),
+    Preview("Preview", Icons.Default.Layers),
+    Printer("Printer", Icons.Default.Print),
+    Settings("Settings", Icons.Default.Tune),
+}
 
 /** How the slicer screen shares the window between the 3D view and its controls. */
 private enum class SlicerLayout {
     /** Phones: the controls in a bar under the 3D view. */
     Single,
-    /** Half of the window beside the 3D view, with the slicing settings. */
+    /** The side panel on half of the window. */
     Half,
-    /** A slim panel with the profile chips beside the 3D view. */
+    /** The side panel at a fixed width, from 840 dp. */
     Narrow,
-    /** Half-open foldable: the 3D view above the hinge, the controls below it. */
+    /** Half-open foldable: the 3D view above the hinge, the side panel below it. */
     Tabletop,
 }
 
@@ -106,6 +114,7 @@ private enum class SlicerLayout {
 fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: PreferencesViewModel) {
     var screen by rememberSaveable { mutableStateOf(Screen.Slicer) }
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
     // Outlives the 3D view, which is recreated when returning from another screen.
     val camera = remember { OrbitCamera() }
 
@@ -134,6 +143,27 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
         }
     }
 
+    val current = when (screen) {
+        Screen.Printer -> Destination.Printer
+        Screen.Settings -> Destination.Settings
+        Screen.Slicer -> if (vm.mode == ViewMode.Preview) Destination.Preview else Destination.Plate
+        else -> null
+    }
+    fun navigate(destination: Destination) {
+        when (destination) {
+            Destination.Plate -> {
+                screen = Screen.Slicer
+                vm.showPlate()
+            }
+            Destination.Preview -> {
+                screen = Screen.Slicer
+                vm.openPreview(context)
+            }
+            Destination.Printer -> screen = Screen.Printer
+            Destination.Settings -> screen = Screen.Settings
+        }
+    }
+
     when {
         vm.initError != null -> ErrorScreen(vm.initError!!)
         !vm.ready || vm.presets == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -141,53 +171,57 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
         }
         screen == Screen.AddPrinter -> AddPrinterScreen(vm, printer, onClose = { screen = Screen.Printer })
         else -> BoxWithConstraints(Modifier.fillMaxSize()) {
-            // Tablets and unfolded foldables get a navigation rail and a side panel.
+            // Tablets and unfolded foldables get a navigation rail and a side panel, phones a navigation bar.
             val rail = maxWidth >= 600.dp
             val wide = maxWidth >= 840.dp
             val tabletop = prefs.splitWhenFolded && currentWindowAdaptiveInfo().windowPosture.isTabletop
             val layout = when {
                 tabletop -> SlicerLayout.Tabletop
-                // A half panel needs some height for the settings list, so not on phones in landscape.
+                // The side panel needs some height for its lists, so not on phones in landscape.
                 prefs.sidePanel == PanelMode.Half && rail && maxHeight >= 480.dp -> SlicerLayout.Half
                 prefs.sidePanel != PanelMode.Off && wide -> SlicerLayout.Narrow
                 else -> SlicerLayout.Single
             }
-            val back: (() -> Unit)? = if (rail) null else ({ screen = Screen.Slicer })
             Row(Modifier.fillMaxSize()) {
                 if (rail) {
-                    AppRail(screen, onSelect = { screen = it })
-                }
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    when (screen) {
-                        Screen.Settings -> {
-                            BackHandler { screen = Screen.Slicer }
-                            SettingsScreen(
-                                vm, onBack = back, wide = wide, defaultMode = prefs.settingsMode,
-                                onPrinterPresetSaved = printer::setActivePreset,
-                            )
-                        }
-                        Screen.Printer -> {
-                            BackHandler { screen = Screen.Slicer }
-                            PrinterScreen(
-                                printer, snackbar, onBack = back,
-                                keepScreenOn = prefs.keepScreenOn,
-                                onAddPrinter = { screen = Screen.AddPrinter },
-                                onRemovePrinter = ::removePrinter,
-                            )
-                        }
-                        Screen.Preferences -> {
-                            BackHandler { screen = Screen.Slicer }
-                            AppPreferencesScreen(prefs, onBack = back)
-                        }
-                        else -> SlicerScreen(
-                            vm, printer, prefs, snackbar, camera,
-                            navigationInRail = rail, layout = layout,
-                            onOpenSettings = { screen = Screen.Settings },
-                            onOpenPreferences = { screen = Screen.Preferences },
-                            onOpenPrinter = { screen = Screen.Printer },
-                            onAddPrinter = { screen = Screen.AddPrinter },
-                        )
+                    AppRail(current, preferences = screen == Screen.Preferences, onSelect = ::navigate) {
+                        screen = Screen.Preferences
                     }
+                }
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    // The navigation bar below takes the system navigation bar's space.
+                    Box(Modifier.weight(1f).then(if (rail) Modifier else Modifier.consumeWindowInsets(WindowInsets.navigationBars))) {
+                        when (screen) {
+                            Screen.Settings -> {
+                                BackHandler { navigate(Destination.Plate) }
+                                SettingsScreen(
+                                    vm, onBack = null, wide = wide, defaultMode = prefs.settingsMode,
+                                    onPrinterPresetSaved = printer::setActivePreset,
+                                )
+                            }
+                            Screen.Printer -> {
+                                BackHandler { navigate(Destination.Plate) }
+                                PrinterScreen(
+                                    printer, snackbar, onBack = null,
+                                    keepScreenOn = prefs.keepScreenOn,
+                                    onAddPrinter = { screen = Screen.AddPrinter },
+                                    onRemovePrinter = ::removePrinter,
+                                )
+                            }
+                            Screen.Preferences -> {
+                                BackHandler { navigate(Destination.Plate) }
+                                AppPreferencesScreen(prefs, onBack = if (rail) null else ({ navigate(Destination.Plate) }))
+                            }
+                            else -> SlicerScreen(
+                                vm, printer, prefs, snackbar, camera,
+                                navigationInRail = rail, layout = layout,
+                                onOpenPreferences = { screen = Screen.Preferences },
+                                onOpenPrinter = { navigate(Destination.Printer) },
+                                onAddPrinter = { screen = Screen.AddPrinter },
+                            )
+                        }
+                    }
+                    if (!rail) AppNavigationBar(current, onSelect = ::navigate)
                 }
             }
         }
@@ -195,23 +229,40 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
 }
 
 @Composable
-private fun AppRail(screen: Screen, onSelect: (Screen) -> Unit) {
+private fun AppRail(current: Destination?, preferences: Boolean, onSelect: (Destination) -> Unit, onPreferences: () -> Unit) {
     NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-        @Composable
-        fun Item(target: Screen, icon: ImageVector, label: String) = NavigationRailItem(
-            selected = screen == target,
-            onClick = { onSelect(target) },
-            icon = { Icon(icon, null) },
-            label = { Text(label, maxLines = 1) },
-        )
         Spacer(Modifier.height(8.dp))
-        Item(Screen.Slicer, Icons.Default.ViewInAr, "Plate")
-        Item(Screen.Printer, Icons.Default.Print, "Printer")
-        Item(Screen.Settings, Icons.Default.Tune, "Settings")
-        // App preferences at the bottom, away from the slicing screens.
+        Destination.entries.forEach { d ->
+            NavigationRailItem(
+                selected = current == d,
+                onClick = { onSelect(d) },
+                icon = { Icon(d.icon, null) },
+                label = { Text(d.label, maxLines = 1) },
+            )
+        }
+        // App settings at the bottom, away from the slicing screens.
         Spacer(Modifier.weight(1f))
-        Item(Screen.Preferences, Icons.Default.Settings, "Preferences")
+        NavigationRailItem(
+            selected = preferences,
+            onClick = onPreferences,
+            icon = { Icon(Icons.Default.Settings, "App settings") },
+            label = { Text("App", maxLines = 1) },
+        )
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun AppNavigationBar(current: Destination?, onSelect: (Destination) -> Unit) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+        Destination.entries.forEach { d ->
+            NavigationBarItem(
+                selected = current == d,
+                onClick = { onSelect(d) },
+                icon = { Icon(d.icon, null) },
+                label = { Text(d.label, maxLines = 1) },
+            )
+        }
     }
 }
 
@@ -225,7 +276,6 @@ private fun SlicerScreen(
     camera: OrbitCamera,
     navigationInRail: Boolean,
     layout: SlicerLayout,
-    onOpenSettings: () -> Unit,
     onOpenPreferences: () -> Unit,
     onOpenPrinter: () -> Unit,
     onAddPrinter: () -> Unit,
@@ -239,20 +289,16 @@ private fun SlicerScreen(
     BackHandler(enabled = preview) { vm.showPlate() }
     BackHandler(enabled = vm.transformOpen) { vm.transformOpen = false }
     BackHandler(enabled = vm.paintMode != null) { vm.stopPainting() }
+    val split = layout != SlicerLayout.Single
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                navigationIcon = {
-                    if (preview) {
-                        IconButton(onClick = vm::showPlate) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to plate") }
-                    }
-                },
                 title = {
                     Column {
-                        Text(if (preview) "Preview" else "AndSlice", style = MaterialTheme.typography.titleLarge)
+                        Text(if (preview) "Preview" else "Plate", style = MaterialTheme.typography.titleLarge)
                         Text(
                             (printer.active?.name ?: "Printer") + " · " + shortPresetName(vm.printer),
                             style = MaterialTheme.typography.labelMedium,
@@ -265,10 +311,6 @@ private fun SlicerScreen(
                 actions = {
                     if (!preview) {
                         IconButton(onClick = { openModels.launch(arrayOf("*/*")) }) { Icon(Icons.Default.Add, "Import model") }
-                    }
-                    if (!navigationInRail) {
-                        IconButton(onClick = onOpenPrinter) { Icon(Icons.Default.Print, "Printer") }
-                        IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Tune, "Settings") }
                     }
                     var menu by remember { mutableStateOf(false) }
                     Box {
@@ -290,7 +332,7 @@ private fun SlicerScreen(
                             }
                             if (!navigationInRail) {
                                 DropdownMenuItem(
-                                    text = { Text("Preferences") },
+                                    text = { Text("App settings") },
                                     leadingIcon = { Icon(Icons.Default.Settings, null) },
                                     onClick = { menu = false; onOpenPreferences() },
                                 )
@@ -306,8 +348,9 @@ private fun SlicerScreen(
             )
         },
         floatingActionButton = {
+            // The side panel has its own Slice button.
             AnimatedVisibility(
-                visible = !preview && vm.objects.isNotEmpty() && !vm.slicing && vm.paintMode == null && !vm.transformOpen,
+                visible = !split && !preview && vm.objects.isNotEmpty() && !vm.slicing && vm.paintMode == null && !vm.transformOpen,
                 enter = scaleIn() + fadeIn(),
                 exit = scaleOut() + fadeOut(),
             ) {
@@ -315,13 +358,15 @@ private fun SlicerScreen(
             }
         },
         bottomBar = {
-            if (layout == SlicerLayout.Single) {
+            if (!split) {
                 if (preview) PreviewBottomBar(vm, printer, onOpenPrinter) else PlateBottomBar(vm, printer, onAddPrinter)
             }
         },
     ) { padding ->
         val scene: @Composable (Modifier) -> Unit = { modifier ->
-            Box(modifier) {
+            BoxWithConstraints(modifier) {
+                // Tool panels leave at least part of the object in view.
+                val toolMaxHeight = maxHeight * 0.6f
                 // Anti-aliasing is chosen when the GL surface is made, so a change makes a new view.
                 key(prefs.antialiasing) {
                     Viewport(vm, camera, Modifier.fillMaxSize(), prefs.antialiasing, prefs.renderScale, prefs.showGrid)
@@ -336,6 +381,7 @@ private fun SlicerScreen(
                     }
                     vm.selectedObject?.let { obj ->
                         val panel = Modifier.align(Alignment.BottomCenter).padding(12.dp).widthIn(max = 560.dp).fillMaxWidth()
+                            .heightIn(max = toolMaxHeight)
                         when {
                             vm.paintMode != null -> PaintPanel(vm, panel)
                             else -> {
@@ -344,47 +390,29 @@ private fun SlicerScreen(
                             }
                         }
                     }
-                    if (vm.result != null && vm.selectedObject == null) {
-                        PreviewShortcut(vm, Modifier.align(Alignment.BottomStart).padding(16.dp))
-                    }
                 } else {
                     PreviewOverlay(vm, Modifier.fillMaxSize())
                 }
             }
         }
-        val controls: @Composable () -> Unit = {
-            if (preview) PreviewBottomBar(vm, printer, onOpenPrinter, inPanel = true) else PlateBottomBar(vm, printer, onAddPrinter, wide = true)
-        }
-        // Profile chips (or the slice summary) on top, and below them all slicing settings.
-        val settingsPanel: @Composable (Modifier) -> Unit = { modifier ->
-            // Above the keyboard while a setting is edited.
-            Column(modifier.background(MaterialTheme.colorScheme.surface).imePadding()) {
-                controls()
-                HorizontalDivider()
-                SettingsScreen(
-                    vm, onBack = null, modifier = Modifier.weight(1f), embedded = true,
-                    defaultMode = prefs.settingsMode, onPrinterPresetSaved = printer::setActivePreset,
-                )
-            }
-        }
-        val chipsPanel: @Composable (Modifier) -> Unit = { modifier ->
-            Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainer) {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 88.dp)) { controls() }
-            }
+        // Above the keyboard while a setting is edited.
+        val panel: @Composable (Modifier) -> Unit = { modifier ->
+            SidePanel(vm, printer, prefs, onAddPrinter, onOpenPrinter, modifier.imePadding())
         }
         when (layout) {
-            SlicerLayout.Tabletop -> Column(Modifier.fillMaxSize().padding(padding)) {
+            SlicerLayout.Tabletop -> Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 scene(Modifier.weight(1f).fillMaxWidth())
-                chipsPanel(Modifier.weight(1f).fillMaxWidth())
+                panel(Modifier.weight(1f).fillMaxWidth())
             }
             SlicerLayout.Half -> Row(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 scene(Modifier.weight(1f).fillMaxHeight())
                 VerticalDivider()
-                settingsPanel(Modifier.weight(1f).fillMaxHeight())
+                panel(Modifier.weight(1f).fillMaxHeight())
             }
-            SlicerLayout.Narrow -> Row(Modifier.fillMaxSize().padding(padding)) {
+            SlicerLayout.Narrow -> Row(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 scene(Modifier.weight(1f).fillMaxHeight())
-                chipsPanel(Modifier.width(380.dp).fillMaxHeight())
+                VerticalDivider()
+                panel(Modifier.width(400.dp).fillMaxHeight())
             }
             SlicerLayout.Single -> scene(Modifier.fillMaxSize().padding(padding))
         }
@@ -434,16 +462,6 @@ private fun EmptyPlate(modifier: Modifier, onImport: () -> Unit) {
             }
         }
     }
-}
-
-@Composable
-private fun PreviewShortcut(vm: SlicerViewModel, modifier: Modifier) {
-    androidx.compose.material3.SuggestionChip(
-        onClick = vm::showPreview,
-        label = { Text(if (vm.resultStale) "Previous preview (out of date)" else "Show preview") },
-        icon = { Icon(Icons.Default.Layers, null, Modifier.size(18.dp)) },
-        modifier = modifier,
-    )
 }
 
 @Composable

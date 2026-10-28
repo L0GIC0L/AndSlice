@@ -74,6 +74,7 @@ class SceneView(
                 NativeEngine.rendererSurfaceChanged(width, height)
                 mainHandler.post {
                     camera.aspect = width.toFloat() / height.coerceAtLeast(1)
+                    camera.refit()
                     publishCamera()
                 }
             }
@@ -158,7 +159,7 @@ class SceneView(
         if (pendingDab.getAndSet(PaintDab(camera.eye(), dir, brush, continueStroke)) == null) {
             queueEvent {
                 val dab = pendingDab.getAndSet(null) ?: return@queueEvent
-                NativeEngine.paintAt(dab.eye, dab.dir, dab.brush.radius, dab.brush.tool, dab.brush.state, dab.continueStroke)
+                NativeEngine.paintAt(dab.eye, dab.dir, dab.brush.params(), dab.continueStroke)
             }
         }
         requestRender()
@@ -225,7 +226,8 @@ class SceneView(
                     paintMoved = false
                     downX = event.x
                     downY = event.y
-                    if (painting && brush.tool == PaintMode.TOOL_BRUSH) queueDab(event.x, event.y, brush, false)
+                    // Brush and height band paint as the finger moves; fill waits for a tap.
+                    if (painting && brush.tool != PaintMode.TOOL_FILL) queueDab(event.x, event.y, brush, false)
                 } else {
                     startObjectDrag(event.x, event.y)
                 }
@@ -235,7 +237,7 @@ class SceneView(
                 // A second finger makes it a camera gesture; take back what the first one painted.
                 if (painting) {
                     painting = false
-                    if (brush?.tool == PaintMode.TOOL_BRUSH) cancelStroke()
+                    if (brush != null && brush.tool != PaintMode.TOOL_FILL) cancelStroke()
                 }
                 finishObjectDrag()
                 lastFocusX = focusX(event)
@@ -252,7 +254,7 @@ class SceneView(
                 } else if (!multiTouch) {
                     if (painting && brush != null) {
                         if (kotlin.math.hypot(event.x - downX, event.y - downY) > touchSlop) paintMoved = true
-                        if (brush.tool == PaintMode.TOOL_BRUSH) queueDab(event.x, event.y, brush, true)
+                        if (brush.tool != PaintMode.TOOL_FILL) queueDab(event.x, event.y, brush, true)
                     } else if (draggingId >= 0 || draggingTower) {
                         moveObjectDrag(event.x, event.y, done = false)
                     } else {

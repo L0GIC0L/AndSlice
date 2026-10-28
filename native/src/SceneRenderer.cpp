@@ -329,6 +329,16 @@ void SceneRenderer::draw_paint(const PlateObject& o, int color_uniform)
     glBindVertexArray(it->second.vao);
     for (const auto& [state, first, count] : paint.groups) {
         float c[4] = { 1.f, 1.f, 1.f, 1.f };
+        if (state == PaintHighlightState) {
+            // Overhangs to paint supports on, see-through over the object as in PrusaSlicer.
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            const float highlight[4] = { 1.f, 0.62f, 0.1f, 0.45f };
+            glUniform4fv(color_uniform, 1, highlight);
+            glDrawArrays(GL_TRIANGLES, GLint(first), GLsizei(count));
+            glDisable(GL_BLEND);
+            continue;
+        }
         if (paint.mode == PaintColors) {
             // Single-filament printers ignore filament painting, and so does the view.
             if (m_extruder_colors.empty())

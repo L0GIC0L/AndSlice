@@ -55,6 +55,8 @@ struct Engine::PaintSession {
     Vec3f                                          last_hit = Vec3f::Zero();
     int                                            last_facet = -1;
     std::vector<std::vector<TriangleSelector::TriangleSplittingData>> undo; // state before each stroke
+    float                                          highlight_angle = 0.f;
+    std::vector<float>                             highlight;  // overhang triangles, object coordinates
     std::shared_ptr<const PaintMesh>               mesh;
 };
 
@@ -938,6 +940,22 @@ FacetsAnnotation& paint_facets(ModelVolume& volume, int mode)
     return mode == PaintColors ? volume.mm_segmentation_facets : volume.supported_facets;
 }
 
+// Calls fn(facet index) for every facet of the volume tilted less than `angle_deg` from the bed and
+// facing down, like PrusaSlicer's GLGizmoFdmSupports::select_facets_by_angle().
+template<class Fn>
+void for_each_overhang(const ModelVolume& volume, const Transform3d& instance_no_offset, float angle_deg, Fn&& fn)
+{
+    const float       threshold = float(M_PI) / 180.f * angle_deg;
+    const Transform3d trafo     = instance_no_offset * volume.get_matrix_no_offset();
+    const Vec3f       down      = (trafo.inverse() * (-Vec3d::UnitZ())).cast<float>().normalized();
+    const Vec3f       limit     = (trafo.inverse() * Vec3d(std::sin(threshold), 0, -std::cos(threshold))).cast<float>().normalized();
+    const float       dot_limit = limit.dot(down);
+    const indexed_triangle_set& its = volume.mesh().its;
+    for (size_t i = 0; i < its.indices.size(); ++i)
+        if (its_face_normal(its, its.indices[i]).dot(down) > dot_limit)
+            fn(int(i));
+}
+
 void used_states(const TriangleSelector::TriangleSplittingData& data, std::set<int>& out)
 {
     for (size_t state = 1; state < data.used_states.size(); ++state)
@@ -991,6 +1009,8 @@ void Engine::update_paint_mesh(PaintSession& session)
     for (size_t i = 0; i < session.selectors.size(); ++i)
         for (int state : session.states)
             add_facets(by_state, state, session.selectors[i]->get_facets(TriangleStateType(state)), session.volumes[i]->get_matrix());
+    if (!session.highlight.empty())
+        by_state[int(PaintHighlightState)] = session.highlight;
     session.mesh = make_paint_mesh(session.mode, by_state);
 }
 
@@ -1032,7 +1052,7 @@ bool Engine::paint_begin(uint64_t id, int mode)
     return true;
 }
 
-bool Engine::paint_at(const float camera[3], const float dir[3], float radius, int tool, int state, bool continue_stroke)
+bool Engine::paint_at(const float camera[3], const float dir[3], const PaintParams& params, bool continue_stroke)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     PaintSession* s = m_paint.get();
@@ -1088,20 +1108,29 @@ bool Engine::paint_at(const float camera[3], const float dir[3], float radius, i
     const Transform3d       trafo_no_translate = instance_no_offset * volume.get_matrix_no_offset();
     const Vec3f             camera_in_mesh     = (trafo.inverse() * eye).cast<float>();
     const TriangleSelector::ClippingPlane no_clipping;
-    const TriangleStateType new_state = TriangleStateType(std::clamp(state, 0, 16));
-    if (tool == PaintFill) {
-        selector.seed_fill_select_triangles(hit, facet, trafo_no_translate, no_clipping, 30.f, 0.02f, 0.f,
-                                            TriangleSelector::ForceReselection::YES);
+    const TriangleStateType new_state = TriangleStateType(std::clamp(params.state, 0, 16));
+    const int               state     = params.state;
+    const float             radius    = std::max(params.radius, 0.1f);
+    const auto              cursor    = params.sphere ? TriangleSelector::CursorType::SPHERE : TriangleSelector::CursorType::CIRCLE;
+    // Overhang-only painting applies to supports; filaments go everywhere.
+    const float overhangs = s->mode == PaintSupports ? std::clamp(params.overhang_angle, 0.f, 90.f) : 0.f;
+    if (params.tool == PaintFill) {
+        selector.seed_fill_select_triangles(hit, facet, trafo_no_translate, no_clipping, std::clamp(params.fill_angle, 0.f, 90.f),
+                                            0.02f, overhangs, TriangleSelector::ForceReselection::YES);
         selector.seed_fill_apply_on_triangles(new_state);
+    } else if (params.tool == PaintHeightRange) {
+        selector.select_patch(facet, std::make_unique<TriangleSelector::HeightRange>(
+                                  hit, volume.mesh().bounding_box(), std::clamp(params.height_range, 0.05f, 50.f), trafo, no_clipping),
+                              new_state, trafo_no_translate, true, overhangs);
     } else if (continue_stroke && s->last_volume == best) {
         // A capsule from the previous dab, so fast strokes leave no gaps.
         selector.select_patch(s->last_facet, TriangleSelector::DoublePointCursor::cursor_factory(
-                                  s->last_hit, hit, camera_in_mesh, radius, TriangleSelector::CursorType::CIRCLE, trafo, no_clipping),
-                              new_state, trafo_no_translate, true);
+                                  s->last_hit, hit, camera_in_mesh, radius, cursor, trafo, no_clipping),
+                              new_state, trafo_no_translate, true, overhangs);
     } else {
         selector.select_patch(facet, TriangleSelector::SinglePointCursor::cursor_factory(
-                                  hit, camera_in_mesh, radius, TriangleSelector::CursorType::CIRCLE, trafo, no_clipping),
-                              new_state, trafo_no_translate, true);
+                                  hit, camera_in_mesh, radius, cursor, trafo, no_clipping),
+                              new_state, trafo_no_translate, true, overhangs);
     }
     s->last_volume = best;
     s->last_hit    = hit;
@@ -1111,6 +1140,62 @@ bool Engine::paint_at(const float camera[3], const float dir[3], float radius, i
     update_paint_mesh(*s);
     touch_plate();
     return true;
+}
+
+bool Engine::paint_overhangs(int state, float angle)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    PaintSession* s = m_paint.get();
+    ModelObject*  o = s ? find_object(s->object_id) : nullptr;
+    if (s == nullptr || s->stroke || o == nullptr || o->instances.empty() || angle <= 0.f)
+        return false;
+    std::vector<TriangleSelector::TriangleSplittingData> before;
+    for (const auto& selector : s->selectors)
+        before.push_back(selector->serialize());
+    const Transform3d instance_no_offset = o->instances.front()->get_matrix_no_offset();
+    const TriangleStateType new_state = TriangleStateType(std::clamp(state, 0, 16));
+    bool painted = false;
+    for (size_t i = 0; i < s->volumes.size(); ++i)
+        for_each_overhang(*s->volumes[i], instance_no_offset, std::min(angle, 90.f), [&](int facet) {
+            s->selectors[i]->set_facet(facet, new_state);
+            painted = true;
+        });
+    if (!painted)
+        return false;
+    s->undo.push_back(std::move(before));
+    if (state > 0)
+        s->states.insert(state);
+    for (size_t i = 0; i < s->volumes.size(); ++i)
+        paint_facets(*s->volumes[i], s->mode).set(*s->selectors[i]);
+    update_paint_mesh(*s);
+    touch_plate();
+    return true;
+}
+
+void Engine::paint_highlight_overhangs(float angle)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    PaintSession* s = m_paint.get();
+    ModelObject*  o = s ? find_object(s->object_id) : nullptr;
+    if (s == nullptr || o == nullptr || o->instances.empty() || angle == s->highlight_angle)
+        return;
+    s->highlight_angle = angle;
+    s->highlight.clear();
+    if (angle > 0.f) {
+        const Transform3d instance_no_offset = o->instances.front()->get_matrix_no_offset();
+        for (const ModelVolume* v : s->volumes) {
+            const indexed_triangle_set& its = v->mesh().its;
+            const Transform3d m = v->get_matrix();
+            for_each_overhang(*v, instance_no_offset, std::min(angle, 90.f), [&](int facet) {
+                for (int k = 0; k < 3; ++k) {
+                    const Vec3f p = (m * its.vertices[its.indices[facet][k]].cast<double>()).cast<float>();
+                    s->highlight.insert(s->highlight.end(), { p.x(), p.y(), p.z() });
+                }
+            });
+        }
+    }
+    update_paint_mesh(*s);
+    touch_plate();
 }
 
 void Engine::paint_commit()

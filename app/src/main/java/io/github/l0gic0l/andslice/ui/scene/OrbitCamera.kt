@@ -31,29 +31,51 @@ class OrbitCamera {
     private val viewProj = FloatArray(16)
     private val invViewProj = FloatArray(16)
 
+    private var bedSize = 0f
+
+    /** The user turned, moved or zoomed the view since it was framed. */
+    var userMoved = false
+        private set
+
     fun reset(bedCenterX: Float, bedCenterY: Float, bedSize: Float) {
         targetX = bedCenterX
         targetY = bedCenterY
         targetZ = 0f
-        distance = bedSize * 1.9f
+        this.bedSize = bedSize
+        distance = fitDistance()
         yawDeg = -110f
         pitchDeg = 35f
+        userMoved = false
         update()
     }
 
+    /** Distance that shows the whole bed: tall views need more room than wide ones. */
+    private fun fitDistance() = bedSize * (1.52f / aspect.coerceAtLeast(0.1f)).coerceIn(1.15f, 3f)
+
+    /** Frames the bed again for a view of another shape (fold, rotation), unless the user moved the view. */
+    fun refit() {
+        if (bedSize > 0f && !userMoved) {
+            distance = fitDistance()
+            update()
+        }
+    }
+
     fun orbit(dxPixels: Float, dyPixels: Float) {
+        userMoved = true
         yawDeg -= dxPixels * 0.3f
         pitchDeg = (pitchDeg + dyPixels * 0.3f).coerceIn(minPitchDeg, 89f)
         update()
     }
 
     fun zoom(factor: Float) {
+        userMoved = true
         distance = (distance / factor).coerceIn(20f, 3000f)
         update()
     }
 
     /** Moves the target so the scene follows the fingers. */
     fun pan(dxPixels: Float, dyPixels: Float, viewHeightPixels: Int) {
+        userMoved = true
         val worldPerPixel = 2f * distance * tan(Math.toRadians(fovDeg / 2.0)).toFloat() / max(viewHeightPixels, 1)
         val yaw = Math.toRadians(yawDeg.toDouble())
         // Screen right and screen up projected onto the camera basis.

@@ -580,10 +580,46 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     var paintState by mutableIntStateOf(PaintMode.ENFORCE)
     /** Brush radius in mm. */
     var brushRadius by mutableFloatStateOf(3f)
+    /** A sphere brush also paints faces turned away from the camera, such as both sides of a thin wall. */
+    var brushSphere by mutableStateOf(false)
+    /** Smart fill stops at edges sharper than this, in degrees. */
+    var fillAngle by mutableFloatStateOf(30f)
+    /** Height of the band the height tool paints, in mm. */
+    var heightRange by mutableFloatStateOf(1f)
+    /** Supports: paint only overhangs tilted less than [overhangAngle] from the bed. */
+    var overhangsOnly by mutableStateOf(false)
+    var showOverhangs by mutableStateOf(false)
+    var overhangAngle by mutableFloatStateOf(45f)
     var paintCanUndo by mutableStateOf(false); private set
 
     /** Brush for the 3D view while painting. */
-    val paintBrush: PaintBrush? get() = paintMode?.let { PaintBrush(paintState, brushRadius, paintTool) }
+    val paintBrush: PaintBrush?
+        get() = paintMode?.let { mode ->
+            PaintBrush(
+                state = paintState, radius = brushRadius, tool = paintTool, sphere = brushSphere,
+                fillAngle = fillAngle, heightRange = heightRange,
+                overhangAngle = if (mode == PaintMode.SUPPORTS && overhangsOnly) overhangAngle else 0f,
+            )
+        }
+
+    /** Shows the overhangs at [overhangAngle] over the object while painting supports. */
+    fun updateOverhangHighlight() {
+        val angle = if (paintMode == PaintMode.SUPPORTS && (showOverhangs || overhangsOnly)) overhangAngle else 0f
+        launchEngine(dispatcher = paintThread) { NativeEngine.paintHighlightOverhangs(angle) }
+    }
+
+    /** Paints the selected support state on every overhang at [overhangAngle]. */
+    fun paintAllOverhangs() {
+        val state = paintState
+        val angle = overhangAngle
+        launchEngine(dispatcher = paintThread) {
+            val painted = NativeEngine.paintOverhangs(state, angle)
+            withContext(Dispatchers.Main) {
+                if (painted) supportsFollowPainting() else message = "No overhangs flatter than ${angle.toInt()}° on this object."
+            }
+            refreshPaint()
+        }
+    }
 
     fun startPainting(mode: Int) {
         val obj = selectedObject ?: return
@@ -612,13 +648,17 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     /** A stroke was stored in the model. */
     fun onPainted() {
-        // Painted enforcers only print with supports on; turn on the ones that follow the painting.
+        supportsFollowPainting()
+        launchEngine(dispatcher = paintThread) { refreshPaint() }
+    }
+
+    /** Painted enforcers only print with supports on; turn on the ones that follow the painting. */
+    private fun supportsFollowPainting() {
         if (paintMode == PaintMode.SUPPORTS && paintState == PaintMode.ENFORCE && value("support_material") != "1") {
             setOverride("support_material", "1")
             setOverride("support_material_auto", "0")
             message = "Supports now print where you paint them. The Supports chip changes this."
         }
-        launchEngine(dispatcher = paintThread) { refreshPaint() }
     }
 
     fun undoPaint() = launchEngine(dispatcher = paintThread) {
@@ -734,6 +774,20 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     fun showPlate() {
         mode = ViewMode.Plate
         redraw()
+    }
+
+    /**
+     * Shows the preview. As in desktop slicers, the plate is sliced first when there is no
+     * preview yet or the plate or settings changed since.
+     */
+    fun openPreview(context: Context) {
+        when {
+            slicing -> Unit
+            result != null && !resultStale -> showPreview()
+            objects.isNotEmpty() -> slice(context, openPreview = true)
+            result != null -> showPreview()
+            else -> message = "Add a model to the plate first."
+        }
     }
 
     fun showPreview() {

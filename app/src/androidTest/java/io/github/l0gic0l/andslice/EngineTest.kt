@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.l0gic0l.andslice.engine.NativeEngine
 import io.github.l0gic0l.andslice.engine.OptionDefs
+import io.github.l0gic0l.andslice.engine.PaintBrush
 import io.github.l0gic0l.andslice.engine.PaintMode
 import io.github.l0gic0l.andslice.engine.PaintState
 import io.github.l0gic0l.andslice.engine.PlateObject
@@ -164,7 +165,8 @@ class EngineTest {
         // A dab of filament 2 on top of the cube, as a finger from straight above would paint it.
         assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.COLORS))
         val camera = floatArrayOf(cube.offset[0].toFloat(), cube.offset[1].toFloat(), 500f)
-        assertTrue(NativeEngine.paintAt(camera, floatArrayOf(0f, 0f, -1f), 5f, PaintMode.TOOL_BRUSH, 2, false))
+        val brush = PaintBrush(state = 2, radius = 5f, tool = PaintMode.TOOL_BRUSH)
+        assertTrue(NativeEngine.paintAt(camera, floatArrayOf(0f, 0f, -1f), brush.params(), false))
         NativeEngine.paintCommit()
         assertTrue(PaintState.parse(NativeEngine.paintStateJson()).canUndo)
         assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().painted)
@@ -182,6 +184,28 @@ class EngineTest {
         assertTrue(NativeEngine.paintUndo())
         NativeEngine.paintEnd()
         assertTrue(!PlateObject.parseList(NativeEngine.objectsJson()).single().painted)
+    }
+
+    @Test
+    fun paintsSupportsOnOverhangsAndBands() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.SUPPORTS))
+        // The cube's bottom faces straight down, so it is an overhang at any angle.
+        NativeEngine.paintHighlightOverhangs(45f)
+        assertTrue(NativeEngine.paintOverhangs(PaintMode.ENFORCE, 45f))
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+        assertTrue(NativeEngine.paintUndo())
+        assertTrue(!PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+
+        // A 2 mm band of blockers around the height touched from above.
+        val band = PaintBrush(state = PaintMode.BLOCK, radius = 1f, tool = PaintMode.TOOL_HEIGHT, heightRange = 2f)
+        val camera = floatArrayOf(cube.offset[0].toFloat(), cube.offset[1].toFloat(), 500f)
+        assertTrue(NativeEngine.paintAt(camera, floatArrayOf(0f, 0f, -1f), band.params(), false))
+        NativeEngine.paintCommit()
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+        NativeEngine.paintEnd()
     }
 
     @Test

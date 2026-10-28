@@ -107,62 +107,51 @@ fun ChoiceSheet(title: String, choices: List<Choice>, selected: String, onDismis
     }
 }
 
-/**
- * Profile chips and quick settings under the plate. With [wide] (tablets, unfolded
- * foldables) the chips wrap in a side panel instead of scrolling in a bar.
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** Profile chips and quick settings in a bar under the plate, on phones. */
 @Composable
-fun PlateBottomBar(vm: SlicerViewModel, printers: PrinterViewModel, onAddPrinter: () -> Unit, wide: Boolean = false) {
+fun PlateBottomBar(vm: SlicerViewModel, printers: PrinterViewModel, onAddPrinter: () -> Unit) {
     val presets = vm.presets ?: return
     var sheet by remember { mutableStateOf<String?>(null) }
 
     @Composable
     fun ChipRow(content: @Composable () -> Unit) {
-        if (wide) {
-            FlowRow(
-                Modifier.padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) { content() }
-        } else {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) { content() }
-        }
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) { content() }
     }
 
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().then(if (wide) Modifier else Modifier.navigationBarsPadding()).padding(vertical = 8.dp)) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp)) {
             // Profiles
             ChipRow {
                 val printerName = printers.active?.name ?: shortPresetName(vm.printer)
                 val nozzle = presets.variant.takeIf { presets.variants.size > 1 }?.let { " · $it" }.orEmpty()
-                PickerChip(Icons.Default.Print, printerName + nozzle, "Printer profile") { sheet = "printer" }
-                PickerChip(Icons.Default.Layers, shortPresetName(vm.print), "Print profile") { sheet = "print" }
-                FilamentChips(vm) { slot -> sheet = "filament:$slot" }
+                PickerChip(Icons.Default.Print, printerName + nozzle, "Printer profile") { sheet = PlateSheets.PRINTER }
+                PickerChip(Icons.Default.Layers, shortPresetName(vm.print), "Print profile") { sheet = PlateSheets.PRINT }
+                FilamentChips(vm) { slot -> sheet = PlateSheets.filament(slot) }
             }
             // Quick settings
             ChipRow {
                 val supports = supportsChoice(vm)
                 FilterChip(
                     selected = supports != "off",
-                    onClick = { sheet = "supports" },
-                    label = { Text(SUPPORT_CHOICES.first { it.value == supports }.label) },
+                    onClick = { sheet = PlateSheets.SUPPORTS },
+                    label = { Text(supportsLabel(vm)) },
                     leadingIcon = { Icon(Icons.Default.Park, null, Modifier.size(FilterChipDefaults.IconSize)) },
                     trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.size(FilterChipDefaults.IconSize)) },
                 )
                 FilterChip(
                     selected = true,
-                    onClick = { sheet = "infill" },
+                    onClick = { sheet = PlateSheets.INFILL },
                     label = { Text("Infill ${vm.value("fill_density") ?: "-"}") },
                     leadingIcon = { Icon(Icons.Default.GridOn, null, Modifier.size(FilterChipDefaults.IconSize)) },
                     trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.size(FilterChipDefaults.IconSize)) },
                 )
-                val brim = (vm.value("brim_width")?.toDoubleOrNull() ?: 0.0) > 0.0
+                val brim = hasBrim(vm)
                 FilterChip(
                     selected = brim,
-                    onClick = { vm.setOverride("brim_width", if (brim) "0" else "5") },
+                    onClick = { toggleBrim(vm) },
                     label = { Text("Brim") },
                     leadingIcon = {
                         Icon(if (brim) Icons.Default.Check else Icons.Default.BorderOuter, null, Modifier.size(FilterChipDefaults.IconSize))
@@ -172,16 +161,27 @@ fun PlateBottomBar(vm: SlicerViewModel, printers: PrinterViewModel, onAddPrinter
         }
     }
 
-    when (val s = sheet) {
-        "printer" -> PrinterSheet(vm, printers, onDismiss = { sheet = null }, onAddPrinter = onAddPrinter)
-        "print" -> ChoiceSheet("Print profile", presets.prints.map { Choice(it, shortPresetName(it)) }, vm.print,
-            onDismiss = { sheet = null }, onSelect = vm::selectPrint)
-        else -> if (s != null && s.startsWith("filament:")) {
-            FilamentSheet(vm, s.substringAfter(':').toInt(), onDismiss = { sheet = null })
-        }
-    }
-    when (sheet) {
-        "supports" -> ChoiceSheet("Supports", SUPPORT_CHOICES, supportsChoice(vm), onDismiss = { sheet = null }) { choice ->
+    PlateSheet(vm, printers, sheet, onDismiss = { sheet = null }, onAddPrinter = onAddPrinter)
+}
+
+/** Names of the sheets [PlateSheet] opens. */
+object PlateSheets {
+    const val PRINTER = "printer"
+    const val PRINT = "print"
+    const val SUPPORTS = "supports"
+    const val INFILL = "infill"
+    fun filament(slot: Int) = "filament:$slot"
+}
+
+/** The bottom sheet behind a profile chip or quick setting, or nothing when [sheet] is null. */
+@Composable
+fun PlateSheet(vm: SlicerViewModel, printers: PrinterViewModel, sheet: String?, onDismiss: () -> Unit, onAddPrinter: () -> Unit) {
+    val presets = vm.presets ?: return
+    when {
+        sheet == PlateSheets.PRINTER -> PrinterSheet(vm, printers, onDismiss = onDismiss, onAddPrinter = onAddPrinter)
+        sheet == PlateSheets.PRINT -> ChoiceSheet("Print profile", presets.prints.map { Choice(it, shortPresetName(it)) }, vm.print,
+            onDismiss = onDismiss, onSelect = vm::selectPrint)
+        sheet == PlateSheets.SUPPORTS -> ChoiceSheet("Supports", SUPPORT_CHOICES, supportsChoice(vm), onDismiss = onDismiss) { choice ->
             vm.setOverride("support_material", if (choice == "off") "0" else "1")
             if (choice != "off") {
                 // PrusaSlicer's "For support enforcers only": no automatic supports, only the painted ones.
@@ -189,9 +189,16 @@ fun PlateBottomBar(vm: SlicerViewModel, printers: PrinterViewModel, onAddPrinter
                 vm.setOverride("support_material_buildplate_only", if (choice == "plate") "1" else "0")
             }
         }
-        "infill" -> InfillSheet(vm, onDismiss = { sheet = null })
+        sheet == PlateSheets.INFILL -> InfillSheet(vm, onDismiss = onDismiss)
+        sheet != null && sheet.startsWith("filament:") -> FilamentSheet(vm, sheet.substringAfter(':').toInt(), onDismiss = onDismiss)
     }
 }
+
+fun supportsLabel(vm: SlicerViewModel) = SUPPORT_CHOICES.first { it.value == supportsChoice(vm) }.label
+
+fun hasBrim(vm: SlicerViewModel) = (vm.value("brim_width")?.toDoubleOrNull() ?: 0.0) > 0.0
+
+fun toggleBrim(vm: SlicerViewModel) = vm.setOverride("brim_width", if (hasBrim(vm)) "0" else "5")
 
 /** The saved printers, and the nozzle variants of the active one. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)

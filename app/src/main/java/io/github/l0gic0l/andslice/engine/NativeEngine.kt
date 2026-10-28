@@ -61,10 +61,14 @@ object NativeEngine {
     /** Starts painting the object's surface in [mode] ([PaintMode.SUPPORTS] or [PaintMode.COLORS]). */
     external fun paintBegin(id: Long, mode: Int): Boolean
     /**
-     * Paints [state] (0 erases) where the ray from [camera] along [dir] hits the object, with a brush of
-     * [radius] mm or, for [PaintMode.TOOL_FILL], a smart fill. Returns whether the object was hit.
+     * Paints where the ray from [camera] along [dir] hits the object, as [params] says
+     * ([PaintBrush.params]). Returns whether the object was hit.
      */
-    external fun paintAt(camera: FloatArray, dir: FloatArray, radius: Float, tool: Int, state: Int, continueStroke: Boolean): Boolean
+    external fun paintAt(camera: FloatArray, dir: FloatArray, params: FloatArray, continueStroke: Boolean): Boolean
+    /** Paints [state] on every overhang tilted less than [angle] degrees from the bed. */
+    external fun paintOverhangs(state: Int, angle: Float): Boolean
+    /** Shows the overhangs tilted less than [angle] degrees from the bed; 0 hides them. */
+    external fun paintHighlightOverhangs(angle: Float)
     /** Ends the stroke and stores the painting where slicing reads it. */
     external fun paintCommit()
     /** Takes back the stroke in progress. */

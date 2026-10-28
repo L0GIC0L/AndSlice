@@ -17,7 +17,10 @@ Android 12+ and light and dark themes.
 - Object tools: lay on face, duplicate, delete, auto-arrange, and a move / rotate / scale panel with step
   buttons (0.1 to 10 mm, 1 to 90°), typed values, sizes in mm or scale per axis
 - **Painting** with PrusaSlicer's own painting engine: paint where supports go or must not go, and on the
-  Kobra 3 Combo paint areas in other filaments. Brush with adjustable size or smart fill, undo and clear.
+  Kobra 3 Combo paint areas in other filaments. Tools: a circle or sphere brush of 1-30 mm, smart fill that
+  stops at edges sharper than a chosen angle, and height bands (0.1-10 mm) for stripes. For supports:
+  paint only overhangs below a chosen angle, show those overhangs, or support or block all of them at once.
+  Undo and clear.
 - **Z anti-aliasing** (Settings → Layers and perimeters), ported from OrcaSlicer: on sloped and curved tops
   the nozzle follows the model within a layer, which smooths the visible steps
 - Kobra 3 profiles for 0.2, 0.4, 0.6 and 0.8 mm nozzles, with Anycubic's start macro (`G9111`), speeds,
@@ -42,9 +45,13 @@ Android 12+ and light and dark themes.
   Rinkhals only needs its IP address.
 - **Printer control:** live camera (MJPEG or snapshots), temperatures and preheat, homing, jogging X/Y/Z,
   fan and motors, a G-code console and an emergency stop
-- **Tablets and foldables:** a navigation rail, and the slicing settings in the right half of the plate
-  screen beside the 3D view; printer cards in columns, settings pages as a list beside the options, and a
-  split view when a foldable is half open on a table
+- **Navigation:** Plate, Preview, Printer and Settings in a bar at the bottom on phones and in a rail on
+  tablets and foldables. Preview slices the plate first when it has changed, as in desktop slicers.
+- **Tablets and foldables:** a side panel beside the 3D view (half the screen, or 400 dp) with a Plate tab
+  (printer, profiles, filament slots, quick settings, objects) and a Settings tab with every slicing option,
+  and the Slice button docked under it; printer cards in columns, settings pages as a list beside the
+  options, and a split view when a foldable is half open on a table. The 3D view frames the bed for the
+  shape of the screen.
 - **Preferences:** light, dark or system theme, wallpaper colors, the side panel (half, narrow or off),
   3D view anti-aliasing, resolution and bed grid, whether the preview opens after slicing, keeping the
   screen on while watching the printer, and the settings mode the settings open in

@@ -43,9 +43,24 @@ enum PaintMode {
     PaintColors   = 1, // states: n paints with extruder (ACE slot) n
 };
 enum PaintTool {
-    PaintBrush = 0, // circle brush
-    PaintFill  = 1, // smart fill of the connected area within 30° of the touched facet
+    PaintBrush       = 0, // circle or sphere brush
+    PaintFill        = 1, // smart fill of the connected area up to edges sharper than fill_angle
+    PaintHeightRange = 2, // a horizontal band of height_range around the touched height
 };
+
+// How a dab paints, as in PrusaSlicer's painting gizmos.
+struct PaintParams {
+    int   tool           = PaintBrush;
+    int   state          = 1;     // see PaintMode; 0 erases
+    float radius         = 2.f;   // brush radius, mm
+    bool  sphere         = false; // a sphere also paints faces turned away from the camera
+    float fill_angle     = 30.f;  // smart fill: largest angle between neighboring faces, degrees
+    float height_range   = 1.f;   // height range: height of the band, mm
+    float overhang_angle = 0.f;   // > 0: paint only overhangs tilted less than this from the bed, degrees
+};
+
+// Paint state of the overhang highlight in PaintMesh::groups.
+constexpr uint32_t PaintHighlightState = 255;
 
 // Painted facets of an object in object coordinates, for the renderer.
 struct PaintMesh {
@@ -154,10 +169,15 @@ public:
     // Starts painting an object's model parts in the given PaintMode, with PrusaSlicer's
     // TriangleSelector, as its support and multi-material painting gizmos do.
     bool        paint_begin(uint64_t id, int mode);
-    // Paints where the world-space ray from the camera position first hits the object. State 0 erases.
+    // Paints where the world-space ray from the camera position first hits the object.
     // With PaintBrush, `continue_stroke` joins this dab to the previous one of the stroke.
     // Returns whether the object was hit.
-    bool        paint_at(const float camera[3], const float dir[3], float radius, int tool, int state, bool continue_stroke);
+    bool        paint_at(const float camera[3], const float dir[3], const PaintParams& params, bool continue_stroke);
+    // Paints `state` on every overhang tilted less than `angle` degrees from the bed, as PrusaSlicer's
+    // "Enforce/Block supports by angle" does. Returns whether any face was painted.
+    bool        paint_overhangs(int state, float angle);
+    // Shows the overhangs tilted less than `angle` degrees from the bed over the object; 0 hides them.
+    void        paint_highlight_overhangs(float angle);
     // Ends the stroke and stores the painting in the model, where slicing uses it.
     void        paint_commit();
     // Takes back the stroke in progress, e.g. when a second finger turns it into a camera gesture.

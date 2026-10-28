@@ -49,9 +49,13 @@ class LargeScreenTest {
     @Test
     fun halfPanelShowsSettingsBesideThePlate() {
         startApp()
-        // The navigation rail, with the app preferences at its bottom.
-        compose.onNodeWithText("Preferences").assertExists()
-        // The slicing settings fill the other half of the plate screen.
+        // The navigation rail, with Preview and the app settings at its bottom.
+        compose.onNodeWithText("Preview").assertExists()
+        compose.onNodeWithContentDescription("App settings").assertExists()
+        // The side panel: the plate's profiles and quick settings, then every slicing setting on its own tab.
+        waitForText("Quick settings")
+        compose.onNodeWithText("Add a model to slice").assertExists()
+        compose.onNodeWithTag("panel-settings").performClick()
         compose.onNodeWithTag("settings-search").assertExists()
         compose.onNodeWithText("Infill").performClick()
         waitForText("Fill density")

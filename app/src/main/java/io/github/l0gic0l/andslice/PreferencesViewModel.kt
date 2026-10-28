@@ -25,7 +25,7 @@ enum class PanelMode {
 
 /** How the app looks and behaves; separate from the slicing settings. */
 class PreferencesViewModel(app: Application) : AndroidViewModel(app) {
-    private val prefs = app.getSharedPreferences("app_preferences", Context.MODE_PRIVATE)
+    private val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     var theme by enum("theme", ThemeMode.System)
     /** Colors from the wallpaper on Android 12 and later. */
@@ -45,6 +45,20 @@ class PreferencesViewModel(app: Application) : AndroidViewModel(app) {
     var keepScreenOn by bool("keep_screen_on", true)
     /** Settings mode the settings open in: 0 Simple, 1 Advanced, 2 Expert. */
     var settingsMode by int("settings_mode", 1)
+
+    /** A notification follows prints started from the app or seen on the printer screen. */
+    var printNotifications by bool(KEY_PRINT_NOTIFICATIONS, true)
+    /** The print notification shows a camera snapshot. */
+    var notificationSnapshots by bool(KEY_NOTIFICATION_SNAPSHOTS, true)
+    /** The app asked for Android's notification permission once already. */
+    var askedNotificationPermission by bool("asked_notification_permission", false)
+
+    companion object {
+        /** Shared preferences file, also read by the print monitor service. */
+        const val PREFS = "app_preferences"
+        const val KEY_PRINT_NOTIFICATIONS = "print_notifications"
+        const val KEY_NOTIFICATION_SNAPSHOTS = "notification_snapshots"
+    }
 
     private fun bool(key: String, default: Boolean) =
         Pref(prefs, key, prefs.getBoolean(key, default)) { k, v -> putBoolean(k, v) }

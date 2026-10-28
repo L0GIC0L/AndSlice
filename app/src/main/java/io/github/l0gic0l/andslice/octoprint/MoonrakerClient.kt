@@ -62,6 +62,7 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
             printTimeSeconds = if (active) duration.toLong() else null,
             // Moonraker reports no estimate; extrapolate from the progress so far.
             printTimeLeftSeconds = if (active && progress > 0.01) (duration / progress - duration).toLong() else null,
+            message = stats?.optString("message")?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -188,7 +189,6 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
     private fun JSONObject.heater() = Temperature(optDouble("temperature", 0.0), optDouble("target", 0.0))
 }
 
-/** Relative move: G91, one G1 (XY at 100 mm/s, Z at 10 mm/s), back to G90. */
 /** "G1 X110 Z9.9 F6000" for the given absolute axis targets. */
 internal fun moveGcode(targets: List<Pair<String, Double>>, feed: Int): String =
     "G1" + targets.joinToString("") { (axis, v) -> " $axis${"%.3f".format(java.util.Locale.US, v).trimEnd('0').trimEnd('.')}" } + " F$feed"

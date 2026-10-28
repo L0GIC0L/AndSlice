@@ -55,8 +55,12 @@ class MainActivity : ComponentActivity() {
         viewModel.flushAutosave()
     }
 
-    /** Models, archives and projects opened with or shared to the app. */
+    /** Models, archives and projects opened with or shared to the app, or the printer from a notification. */
     private fun handleIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_SHOW_PRINTER, false) == true) {
+            printerViewModel.requestShow()
+            return
+        }
         val uris = when (intent?.action) {
             Intent.ACTION_VIEW -> listOfNotNull(intent.data)
             Intent.ACTION_SEND -> listOfNotNull(
@@ -70,6 +74,11 @@ class MainActivity : ComponentActivity() {
             else -> emptyList()
         }
         if (uris.isNotEmpty()) viewModel.importModels(this, uris)
+    }
+
+    companion object {
+        /** Opens the printer screen, as the print notification does. */
+        const val EXTRA_SHOW_PRINTER = "show_printer"
     }
 }
 

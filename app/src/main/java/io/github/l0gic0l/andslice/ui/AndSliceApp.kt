@@ -1,5 +1,7 @@
 package io.github.l0gic0l.andslice.ui
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -141,6 +143,26 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
             seenImports = vm.importRequests
             screen = Screen.Slicer
             vm.showPlate()
+        }
+    }
+    // The print notification opens the printer screen.
+    var seenPrinterRequests by rememberSaveable { mutableIntStateOf(printer.showRequests) }
+    LaunchedEffect(printer.showRequests) {
+        if (printer.showRequests != seenPrinterRequests) {
+            seenPrinterRequests = printer.showRequests
+            screen = Screen.Printer
+        }
+    }
+    // Prints are followed in a notification, which Android 13 and later ask the user about once.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) printer.onNotificationsAllowed()
+    }
+    LaunchedEffect(printer.wantsNotificationPermission) {
+        if (!printer.wantsNotificationPermission) return@LaunchedEffect
+        printer.wantsNotificationPermission = false
+        if (Build.VERSION.SDK_INT >= 33 && !prefs.askedNotificationPermission) {
+            prefs.askedNotificationPermission = true
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
     // Slicing follows the active saved printer: its vendor profiles and its printer preset.

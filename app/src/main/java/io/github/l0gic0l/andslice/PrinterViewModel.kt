@@ -3,8 +3,10 @@ package io.github.l0gic0l.andslice
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.l0gic0l.andslice.octoprint.DiscoveredServer
@@ -16,6 +18,7 @@ import io.github.l0gic0l.andslice.octoprint.PrinterHost
 import io.github.l0gic0l.andslice.octoprint.PrinterStatus
 import io.github.l0gic0l.andslice.octoprint.Webcam
 import io.github.l0gic0l.andslice.octoprint.discoverOctoPrint
+import io.github.l0gic0l.andslice.monitor.PrintMonitorService
 import io.github.l0gic0l.andslice.printers.PrinterStore
 import io.github.l0gic0l.andslice.printers.SavedPrinter
 import kotlinx.coroutines.Job
@@ -56,6 +59,16 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
     var discovered by mutableStateOf<List<DiscoveredServer>>(emptyList()); private set
 
     var message by mutableStateOf<String?>(null)
+
+    /** Counts requests to show the printer screen, e.g. from the print notification. */
+    var showRequests by mutableIntStateOf(0); private set
+
+    fun requestShow() {
+        showRequests++
+    }
+
+    /** Set when a print could be followed in a notification, but Android does not allow them yet. */
+    var wantsNotificationPermission by mutableStateOf(false)
 
     init {
         val state = PrinterStore.load(app)
@@ -169,8 +182,11 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
             val c = client()
             if (version == null) version = c.version()
             if (webcam == null) webcam = findWebcam(c)
-            status = c.status()
+            val s = c.status()
+            status = s
             connectionError = null
+            // A print started elsewhere, such as on the printer's screen, gets a notification too.
+            if (s.printing || s.paused) followPrint(s)
         } catch (e: OctoPrintException) {
             connectionError = e.message
             status = null
@@ -194,10 +210,31 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ jobs
 
+    /** Follows the print of the active printer in a notification, unless that is already happening. */
+    private fun followPrint(status: PrinterStatus? = null) {
+        val printer = active ?: return
+        if (PrintMonitorService.following.value == printer.id) return
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences(PreferencesViewModel.PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(PreferencesViewModel.KEY_PRINT_NOTIFICATIONS, true)) return
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            wantsNotificationPermission = true
+            return
+        }
+        PrintMonitorService.start(context, printer, status)
+    }
+
+    /** Android allowed notifications: follow the print that is running. */
+    fun onNotificationsAllowed() {
+        if (status?.let { it.printing || it.paused } == true) followPrint(status)
+    }
+
     fun upload(file: File, print: Boolean) {
         if (!configured || uploadProgress != null) return
         uploadProgress = 0f
         val name = active?.name ?: "the printer"
+        // Started now, while the app is in front; it waits for the print to begin.
+        if (print) followPrint()
         viewModelScope.launch {
             try {
                 client().upload(file, print) { p -> uploadProgress = p }
@@ -205,6 +242,7 @@ class PrinterViewModel(app: Application) : AndroidViewModel(app) {
                 refreshStatus()
             } catch (e: OctoPrintException) {
                 message = e.message
+                if (print) PrintMonitorService.stop(getApplication())
             } finally {
                 uploadProgress = null
             }

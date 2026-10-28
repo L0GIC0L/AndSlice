@@ -48,6 +48,9 @@ Android 12+ and light and dark themes.
   Rinkhals only needs its IP address.
 - **Printer control:** live camera (MJPEG or snapshots), temperatures and preheat, homing, jogging X/Y/Z,
   fan and motors, a G-code console and an emergency stop
+- **Print notifications:** while a print runs, a notification shows its progress, the time left and a camera
+  snapshot, with pause and resume, so the app does not need to stay open. When the print ends, fails or is
+  canceled, an alert says so, with a last look through the camera.
 - **Navigation:** Plate, Preview, Printer and Settings in a bar at the bottom on phones and in a rail on
   tablets and foldables. Preview slices the plate first when it has changed, as in desktop slicers.
 - **Tablets and foldables:** a side panel beside the 3D view (half the screen, or 400 dp) with a Plate tab
@@ -57,7 +60,7 @@ Android 12+ and light and dark themes.
   shape of the screen.
 - **Preferences:** light, dark or system theme, wallpaper colors, the side panel (half, narrow or off),
   3D view anti-aliasing, resolution and bed grid, whether the preview opens after slicing, keeping the
-  screen on while watching the printer, and the settings mode the settings open in
+  screen on while watching the printer, the settings mode the settings open in, and print notifications
 
 ## Download
 

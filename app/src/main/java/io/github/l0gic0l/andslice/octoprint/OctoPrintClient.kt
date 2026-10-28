@@ -27,6 +27,8 @@ data class PrinterStatus(
     val completion: Double?,
     val printTimeSeconds: Long?,
     val printTimeLeftSeconds: Long?,
+    /** What the server says about the job, such as why it failed. */
+    val message: String? = null,
 )
 
 /**

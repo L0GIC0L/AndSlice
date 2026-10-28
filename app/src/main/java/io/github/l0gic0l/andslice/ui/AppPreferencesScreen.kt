@@ -1,6 +1,11 @@
 package io.github.l0gic0l.andslice.ui
 
+import android.Manifest
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -38,8 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import io.github.l0gic0l.andslice.BuildConfig
 import io.github.l0gic0l.andslice.PanelMode
 import io.github.l0gic0l.andslice.PreferencesViewModel
@@ -71,7 +78,17 @@ private sealed interface PrefRow {
 @Composable
 fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
     var showAbout by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    // Turning print notifications on asks Android for them; once refused, its settings page is the way.
+    val openNotificationSettings = {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+        )
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) openNotificationSettings()
+    }
     val scales = listOf(1f, 0.75f, 0.5f)
     val samples = listOf(0, 2, 4)
 
@@ -143,6 +160,30 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
                     PrefRow.Segments(
                         "Settings open in", null, listOf("Simple", "Advanced", "Expert"), prefs.settingsMode,
                     ) { prefs.settingsMode = it },
+                )
+                group(
+                    "Printing",
+                    PrefRow.Toggle(
+                        "Print notifications",
+                        "Progress, time left and pause while printing, and an alert when the print ends",
+                        prefs.printNotifications,
+                    ) { on ->
+                        prefs.printNotifications = on
+                        if (on && !NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+                            prefs.askedNotificationPermission = true
+                            if (Build.VERSION.SDK_INT >= 33) {
+                                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                openNotificationSettings()
+                            }
+                        }
+                    },
+                    PrefRow.Toggle(
+                        "Camera in the notification",
+                        "A snapshot from the printer's camera, once a minute",
+                        prefs.notificationSnapshots,
+                        enabled = prefs.printNotifications,
+                    ) { prefs.notificationSnapshots = it },
                 )
                 group(
                     "About",

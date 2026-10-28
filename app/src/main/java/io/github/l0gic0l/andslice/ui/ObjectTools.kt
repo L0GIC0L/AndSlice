@@ -67,12 +67,12 @@ import io.github.l0gic0l.andslice.engine.PlateObject
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private fun fmt(v: Double, decimals: Int = 2) =
+internal fun fmt(v: Double, decimals: Int = 2) =
     String.format(Locale.US, "%.${decimals}f", v).trimEnd('0').trimEnd('.').ifEmpty { "0" }
 
 /** Floating panel shape shared by the object tools. */
 @Composable
-private fun ToolPanel(modifier: Modifier, content: @Composable () -> Unit) {
+internal fun ToolPanel(modifier: Modifier, content: @Composable () -> Unit) {
     Surface(
         modifier,
         shape = RoundedCornerShape(28.dp),

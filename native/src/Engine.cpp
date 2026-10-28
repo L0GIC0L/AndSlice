@@ -34,6 +34,7 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/Slicing.hpp"
 #include "libslic3r/TriangleSelector.hpp"
 #include "libslic3r/Utils.hpp"
 
@@ -85,6 +86,7 @@ void Engine::init(const std::string& data_dir, const std::string& resources_dir,
     m_paint_cache.clear();
     m_model->clear_objects();
     m_meshes.clear();
+    m_layer_quality.clear();
     m_selected = -1;
     m_wipe_tower = {};
     touch_plate();
@@ -622,6 +624,7 @@ void Engine::remove_object(uint64_t id)
         m_meshes.erase(std::remove_if(m_meshes.begin(), m_meshes.end(),
                                       [id](const auto& m) { return m.first == id; }),
                        m_meshes.end());
+        m_layer_quality.erase(id);
         if (m_selected == int64_t(id))
             m_selected = -1;
         touch_plate();
@@ -635,6 +638,7 @@ void Engine::clear_plate()
     m_paint_cache.clear();
     m_model->clear_objects();
     m_meshes.clear();
+    m_layer_quality.clear();
     m_selected = -1;
     touch_plate();
 }
@@ -648,6 +652,8 @@ uint64_t Engine::duplicate_object(uint64_t id)
     const size_t first_new = m_model->objects.size();
     ModelObject* copy = m_model->add_object(*o);
     const uint64_t new_id = copy->id().id;
+    if (const auto quality = m_layer_quality.find(id); quality != m_layer_quality.end())
+        m_layer_quality[new_id] = quality->second;
     place_new_objects(first_new);
     touch_plate();
     return new_id;
@@ -857,6 +863,11 @@ std::string Engine::objects_json()
                 parts.push_back({ {"name", v->name}, {"extruder", std::max(v->extruder_id(), 1)} });
         }
         const int extruder = o->config.has("extruder") ? std::max(o->config.extruder(), 1) : 1;
+        const auto quality = m_layer_quality.find(o->id().id);
+        // Own settings besides the filament slot, which the plate shows anyway.
+        const t_config_option_keys keys = o->config.keys();
+        const bool own_settings = !o->layer_config_ranges.empty() ||
+            std::any_of(keys.begin(), keys.end(), [](const std::string& k) { return k != "extruder"; });
         out.push_back({
             {"id", o->id().id},
             {"name", o->name},
@@ -872,6 +883,10 @@ std::string Engine::objects_json()
             {"support_painted", support_painted},
             {"seam_painted", seam_painted},
             {"fuzzy_painted", fuzzy_painted},
+            {"layer_quality", quality == m_layer_quality.end() ? -1.f : quality->second},
+            // Layer heights of its own, e.g. from a project, also without a quality.
+            {"layer_profile", !o->layer_height_profile.empty()},
+            {"own_settings", own_settings},
         });
     }
     return out.dump();
@@ -905,6 +920,163 @@ std::vector<PlateObject> Engine::plate_snapshot()
         out.push_back(std::move(po));
     }
     return out;
+}
+
+// ------------------------------------------------------------------- per-object settings
+
+namespace {
+
+// Options an object may override, as in PrusaSlicer's object list: object and region options.
+const std::vector<std::string>& object_option_keys()
+{
+    static const std::vector<std::string> keys = [] {
+        std::vector<std::string> out = PrintObjectConfig().keys();
+        for (const std::string& key : PrintRegionConfig().keys())
+            out.push_back(key);
+        return out;
+    }();
+    return keys;
+}
+
+// Options a height range may override: region options and the layer height.
+const std::vector<std::string>& range_option_keys()
+{
+    static const std::vector<std::string> keys = [] {
+        std::vector<std::string> out = PrintRegionConfig().keys();
+        out.push_back("layer_height");
+        return out;
+    }();
+    return keys;
+}
+
+json config_values(const ModelConfig& config)
+{
+    json out = json::object();
+    for (const std::string& key : config.keys())
+        out[key] = config.option(key)->serialize();
+    return out;
+}
+
+t_layer_config_ranges::iterator find_range(ModelObject& object, double min_z)
+{
+    return std::find_if(object.layer_config_ranges.begin(), object.layer_config_ranges.end(),
+                        [min_z](const auto& range) { return std::abs(range.first.first - min_z) < 1e-4; });
+}
+
+} // namespace
+
+// PrusaSlicer's adaptive layer heights for the object's height as it stands now, smoothed as its
+// layer editing does by default.
+static void set_adaptive_profile(ModelObject& object, const DynamicPrintConfig& config, float quality)
+{
+    object.invalidate_bounding_box();
+    const SlicingParameters params = PrintObject::slicing_parameters(config, object, float(object.max_z()), Vec3d::Ones());
+    const std::vector<double> profile = layer_height_profile_adaptive(params, object, quality);
+    object.layer_height_profile.set(smooth_height_profile(profile, params, HeightProfileSmoothingParams(5, false)));
+}
+
+void Engine::set_layer_quality(uint64_t id, float quality)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    if (o == nullptr || o->instances.empty())
+        return;
+    if (quality < 0.f) {
+        m_layer_quality.erase(id);
+        o->layer_height_profile.clear();
+    } else {
+        m_layer_quality[id] = std::clamp(quality, 0.f, 1.f);
+        // Worked out now with the selected profiles too, so a project saved before slicing has it.
+        set_adaptive_profile(*o, m_bundle->full_config(), m_layer_quality[id]);
+    }
+    touch_plate();
+}
+
+void Engine::update_layer_profiles(const DynamicPrintConfig& config)
+{
+    for (ModelObject* o : m_model->objects)
+        if (const auto it = m_layer_quality.find(o->id().id); it != m_layer_quality.end() && !o->instances.empty())
+            set_adaptive_profile(*o, config, it->second);
+}
+
+std::string Engine::object_settings_json(uint64_t id)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    if (o == nullptr)
+        return "{}";
+    json ranges = json::array();
+    for (const auto& [range, config] : o->layer_config_ranges)
+        ranges.push_back({ {"min", range.first}, {"max", range.second}, {"options", config_values(config)} });
+    const auto quality = m_layer_quality.find(id);
+    json options = config_values(o->config);
+    // The filament slot is chosen on the plate, not here.
+    options.erase("extruder");
+    return json{
+        {"options", options},
+        {"ranges", ranges},
+        {"layer_quality", quality == m_layer_quality.end() ? -1.f : quality->second},
+        {"object_keys", object_option_keys()},
+        {"range_keys", range_option_keys()},
+    }.dump();
+}
+
+void Engine::set_object_option(uint64_t id, double range_min, const std::string& key, const std::string& value)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    if (o == nullptr)
+        return;
+    ModelConfig* config = &o->config;
+    const std::vector<std::string>* allowed = &object_option_keys();
+    if (range_min >= 0.) {
+        const auto range = find_range(*o, range_min);
+        if (range == o->layer_config_ranges.end())
+            throw RuntimeError("No height range starts at that height.");
+        config  = &range->second;
+        allowed = &range_option_keys();
+        // PrusaSlicer reads every range's layer height.
+        if (key == "layer_height" && value.empty())
+            return;
+    }
+    if (std::find(allowed->begin(), allowed->end(), key) == allowed->end())
+        throw RuntimeError("\"" + key + "\" cannot be set for one object.");
+    if (value.empty()) {
+        config->erase(key);
+    } else {
+        ConfigSubstitutionContext ctx(ForwardCompatibilitySubstitutionRule::Disable);
+        config->set_deserialize(key, value, ctx);
+    }
+    touch_plate();
+}
+
+void Engine::edit_height_range(uint64_t id, double old_min, double min_z, double max_z)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    if (o == nullptr)
+        return;
+    ModelConfig config;
+    if (old_min >= 0.) {
+        const auto range = find_range(*o, old_min);
+        if (range == o->layer_config_ranges.end())
+            return;
+        config.assign_config(range->second);
+        o->layer_config_ranges.erase(range);
+    } else {
+        // The layer height the object prints with now, which PrusaSlicer requires of every range.
+        const DynamicPrintConfig& print = m_bundle->prints.get_edited_preset().config;
+        config.set("layer_height", o->config.has("layer_height") ? o->config.get().opt_float("layer_height") : print.opt_float("layer_height"));
+    }
+    if (min_z < max_z) {
+        min_z = std::max(min_z, 0.);
+        // Ranges may not overlap: the new one gives way to those already there.
+        for (const auto& [range, _] : o->layer_config_ranges)
+            if (min_z < range.second && range.first < max_z)
+                throw RuntimeError("Height ranges cannot overlap.");
+        o->layer_config_ranges[{ min_z, max_z }].assign_config(std::move(config));
+    }
+    touch_plate();
 }
 
 // ------------------------------------------------------------------- projects
@@ -957,6 +1129,7 @@ std::string Engine::open_project(const std::string& path)
     m_paint_cache.clear();
     m_model->clear_objects();
     m_meshes.clear();
+    m_layer_quality.clear();
     m_selected = -1;
     json ids = json::array();
     for (ModelObject* src : loaded.objects) {
@@ -1401,7 +1574,6 @@ std::string Engine::slice(const SliceRequest& request, const ProgressFn& progres
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             config = resolve_config(request.printer, request.print, request.filaments);
-            model  = *m_model;
         }
         for (const auto& [key, value] : request.overrides) {
             ConfigSubstitutionContext ctx(ForwardCompatibilitySubstitutionRule::Disable);
@@ -1410,6 +1582,12 @@ std::string Engine::slice(const SliceRequest& request, const ProgressFn& progres
         config.normalize_fdm();
         if (std::string err = config.validate(); !err.empty())
             throw RuntimeError(err);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            // Variable layer heights for the settings of this slice; they stay with the plate for projects.
+            update_layer_profiles(config);
+            model = *m_model;
+        }
 
         model.update_print_volume_state(build_volume(m_bed));
         size_t printable = 0;

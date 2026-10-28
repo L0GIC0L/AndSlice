@@ -75,6 +75,12 @@ data class PlateObject(
     val supportPainted: Boolean = false,
     val seamPainted: Boolean = false,
     val fuzzyPainted: Boolean = false,
+    /** Variable layer height quality (0 finest, 1 fastest), or -1. */
+    val layerQuality: Float = -1f,
+    /** Has layer heights of its own, from the quality or from a project. */
+    val layerProfile: Boolean = false,
+    /** Has settings of its own or height ranges. */
+    val ownSettings: Boolean = false,
 ) {
     /** Extruders that print this object. */
     val extruders: Set<Int> get() = parts.map { it.extruder }.toSet().ifEmpty { setOf(extruder) }
@@ -111,8 +117,40 @@ data class PlateObject(
                     supportPainted = o.optBoolean("support_painted"),
                     seamPainted = o.optBoolean("seam_painted"),
                     fuzzyPainted = o.optBoolean("fuzzy_painted"),
+                    layerQuality = o.optDouble("layer_quality", -1.0).toFloat(),
+                    layerProfile = o.optBoolean("layer_profile"),
+                    ownSettings = o.optBoolean("own_settings"),
                 )
             }
+        }
+    }
+}
+
+/** Settings of one height range of an object, from [min] to [max] mm. */
+data class HeightRange(val min: Double, val max: Double, val options: Map<String, String>)
+
+/** An object's own settings over the print profile, from [NativeEngine.objectSettingsJson]. */
+data class ObjectSettings(
+    val options: Map<String, String> = emptyMap(),
+    val ranges: List<HeightRange> = emptyList(),
+    /** Options an object, and a height range, may override. */
+    val objectKeys: Set<String> = emptySet(),
+    val rangeKeys: Set<String> = emptySet(),
+) {
+    companion object {
+        fun parse(json: String): ObjectSettings {
+            val o = JSONObject(json)
+            fun JSONObject?.values(): Map<String, String> = this?.keys()?.asSequence()?.associateWith { getString(it) } ?: emptyMap()
+            val ranges = o.optJSONArray("ranges")
+            return ObjectSettings(
+                options = o.optJSONObject("options").values(),
+                ranges = (0 until (ranges?.length() ?: 0)).map { i ->
+                    val r = ranges!!.getJSONObject(i)
+                    HeightRange(r.getDouble("min"), r.getDouble("max"), r.optJSONObject("options").values())
+                },
+                objectKeys = o.optJSONArray("object_keys")?.strings()?.toSet() ?: emptySet(),
+                rangeKeys = o.optJSONArray("range_keys")?.strings()?.toSet() ?: emptySet(),
+            )
         }
     }
 }

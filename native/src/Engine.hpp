@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -167,6 +168,23 @@ public:
     // Returns the id of the closest object hit by the world-space ray, or -1.
     int64_t     pick(const float origin[3], const float dir[3]);
 
+    // ---------------------------------------------------------------- per-object settings
+    // Variable layer height with PrusaSlicer's adaptive algorithm: thin layers on slopes and curves, thick ones
+    // on walls, smoothed. `quality` is PrusaSlicer's quality/speed factor: 0 gives the thinnest layers, 1 the
+    // thickest. It is worked out again at every slice, so it follows the object's size and the settings.
+    // A quality below 0 turns it off.
+    void        set_layer_quality(uint64_t id, float quality);
+    // An object's own settings over the print profile:
+    // {"options": {key: value}, "ranges": [{"min", "max", "options": {...}}], "layer_quality": q or -1,
+    //  "object_keys": [...], "range_keys": [...]}, where the keys are the options an object or a height range takes.
+    std::string object_settings_json(uint64_t id);
+    // Sets an option of the object, or of its height range starting at `range_min` when that is >= 0.
+    // An empty value removes the option.
+    void        set_object_option(uint64_t id, double range_min, const std::string& key, const std::string& value);
+    // Adds, moves or (with min >= max) removes the height range that starts at `old_min` (< 0 for a new one).
+    // A new range starts with the layer height the object prints with now.
+    void        edit_height_range(uint64_t id, double old_min, double min_z, double max_z);
+
     // ---------------------------------------------------------------- projects
     // Saves the plate, with painting and transforms, as a PrusaSlicer 3MF project, which PrusaSlicer
     // and OrcaSlicer open too. The settings (presets plus overrides) are stored with it.
@@ -227,6 +245,7 @@ private:
     struct PaintSession;
     void                       update_paint_mesh(PaintSession& session);
     void                       end_paint_of(uint64_t id);
+    void                       update_layer_profiles(const Slic3r::DynamicPrintConfig& config);
 
     mutable std::mutex                     m_mutex;        // guards everything below except m_print
     std::unique_ptr<Slic3r::PresetBundle>  m_bundle;
@@ -246,6 +265,8 @@ private:
         std::shared_ptr<const PaintMesh> mesh;
     };
     std::vector<PaintCacheEntry>           m_paint_cache;
+    // Variable layer height quality of objects that have it, by object id.
+    std::map<uint64_t, float>              m_layer_quality;
 
     std::mutex                             m_slice_mutex;  // one slice at a time
     std::atomic<Slic3r::Print*>            m_print{nullptr};

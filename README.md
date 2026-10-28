@@ -28,6 +28,10 @@ Android 12+ and light and dark themes.
   stops at edges sharper than a chosen angle, and height bands (0.1-10 mm) for stripes. For supports:
   paint only overhangs below a chosen angle, show those overhangs, or support or block all of them at once.
   Undo and clear.
+- **Object settings** (the slider icon on an object): variable layer height with PrusaSlicer's adaptive
+  algorithm (thin layers on curves and slopes, thick ones on walls, from finer to faster), settings for one
+  object only (any of PrusaSlicer's object and region options, such as infill, perimeters or supports), and
+  height ranges with settings of their own, such as finer layers for a detailed top
 - **Z anti-aliasing** (Settings → Layers and perimeters), ported from OrcaSlicer: on sloped and curved tops
   the nozzle follows the model within a layer, which smooths the visible steps
 - Kobra 3 profiles for 0.2, 0.4, 0.6 and 0.8 mm nozzles, with Anycubic's start macro (`G9111`), speeds,
@@ -163,7 +167,8 @@ Repeat the two native steps with `x86_64` for emulator builds.
   laid out as on an unfolded foldable. CI runs them on an x86_64 emulator.
 - The command-line harness also paints (`--paint 0=colors:2`, `--paint 0=supports:1:below`), takes any
   option with `--set`, such as `--set zaa_enabled=1`, and saves and opens projects
-  (`--save-project plate.3mf`, `--project plate.3mf`).
+  (`--save-project plate.3mf`, `--project plate.3mf`). `--adaptive 0=0.5`, `--object-set 0:perimeters=4` and
+  `--range 0:10-20:layer_height=0.1` set variable layer height, object settings and height ranges.
 
 ### Release signing
 

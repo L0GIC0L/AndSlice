@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Park
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Grain
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.AssistChip
@@ -378,8 +380,12 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = 6.dp,
         ) {
-            Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                FilledIconToggleButton(checked = vm.transformOpen, onCheckedChange = { vm.transformOpen = it }) {
+            // Scrolls on narrow phones rather than cutting off buttons.
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                FilledIconToggleButton(checked = vm.transformOpen, onCheckedChange = {
+                    vm.transformOpen = it
+                    if (it) vm.openObjectSettings(false)
+                }) {
                     Icon(Icons.Default.OpenWith, "Move, rotate, scale")
                 }
                 FilledIconToggleButton(checked = vm.layFaceMode, onCheckedChange = { vm.toggleLayFaceMode() }) {
@@ -420,7 +426,20 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
                         )
                     }
                 }
-                IconButton(onClick = vm::duplicateSelected) { Icon(Icons.Default.ContentCopy, "Duplicate") }
+                FilledIconToggleButton(checked = vm.objectSettingsOpen, onCheckedChange = vm::openObjectSettings) {
+                    Icon(Icons.Default.Tune, "Object settings")
+                }
+                Box {
+                    var more by remember { mutableStateOf(false) }
+                    IconButton(onClick = { more = true }) { Icon(Icons.Default.MoreVert, "More object tools") }
+                    DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Duplicate") },
+                            leadingIcon = { Icon(Icons.Default.ContentCopy, null) },
+                            onClick = { more = false; vm.duplicateSelected() },
+                        )
+                    }
+                }
                 IconButton(onClick = vm::deleteSelected) { Icon(Icons.Default.Delete, "Delete") }
             }
         }

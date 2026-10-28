@@ -277,6 +277,30 @@ JNIEXPORT jfloatArray JNICALL FN(wipeTowerPosition)(JNIEnv* env, jobject)
     }, (jfloatArray) nullptr);
 }
 
+// ------------------------------------------------------------------- per-object settings
+
+JNIEXPORT void JNICALL FN(setLayerQuality)(JNIEnv* env, jobject, jlong id, jfloat quality)
+{
+    guarded_void(env, [&] { Engine::get().set_layer_quality(uint64_t(id), quality); });
+}
+
+JNIEXPORT jstring JNICALL FN(objectSettingsJson)(JNIEnv* env, jobject, jlong id)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().object_settings_json(uint64_t(id))); }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(setObjectOption)(JNIEnv* env, jobject, jlong id, jdouble range_min, jstring key, jstring value)
+{
+    guarded_void(env, [&] {
+        Engine::get().set_object_option(uint64_t(id), range_min, to_string(env, key), to_string(env, value));
+    });
+}
+
+JNIEXPORT void JNICALL FN(editHeightRange)(JNIEnv* env, jobject, jlong id, jdouble old_min, jdouble min_z, jdouble max_z)
+{
+    guarded_void(env, [&] { Engine::get().edit_height_range(uint64_t(id), old_min, min_z, max_z); });
+}
+
 // ------------------------------------------------------------------- projects
 
 JNIEXPORT void JNICALL FN(saveProject)(JNIEnv* env, jobject, jstring path, jstring printer, jstring print,

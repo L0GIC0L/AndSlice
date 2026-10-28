@@ -15,6 +15,7 @@ import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.l0gic0l.andslice.engine.NativeEngine
+import io.github.l0gic0l.andslice.engine.ObjectSettings
 import io.github.l0gic0l.andslice.engine.OptionDefs
 import io.github.l0gic0l.andslice.engine.PaintBrush
 import io.github.l0gic0l.andslice.engine.PaintMode
@@ -778,6 +779,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         if (id != selectedId) {
             stopPainting()
             transformOpen = false
+            objectSettingsOpen = false
         }
         selectedId = id
         NativeEngine.select(id)
@@ -826,6 +828,41 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The move, rotate and scale panel is open for the selected object. */
     var transformOpen by mutableStateOf(false)
+
+    // ------------------------------------------------------------------ object settings
+
+    /** The panel with the selected object's own settings is open. */
+    var objectSettingsOpen by mutableStateOf(false); private set
+    var objectSettings by mutableStateOf(ObjectSettings()); private set
+
+    fun openObjectSettings(open: Boolean) {
+        objectSettingsOpen = open && selectedId >= 0
+        if (!objectSettingsOpen) return
+        stopPainting()
+        transformOpen = false
+        layFaceMode = false
+        changeObject {}
+    }
+
+    /** Runs [block] on the selected object, then reads its settings and the plate back. */
+    private fun changeObject(block: (Long) -> Unit) {
+        val id = selectedId.takeIf { it >= 0 } ?: return
+        launchEngine {
+            block(id)
+            val settings = ObjectSettings.parse(NativeEngine.objectSettingsJson(id))
+            withContext(Dispatchers.Main) { if (id == selectedId) objectSettings = settings }
+            refreshObjects()
+        }
+    }
+
+    /** Variable layer height at PrusaSlicer's quality/speed factor; below 0 turns it off. */
+    fun setLayerQuality(quality: Float) = changeObject { NativeEngine.setLayerQuality(it, quality) }
+
+    /** Sets an option of the selected object, or of its height range from [rangeMin] (>= 0); "" removes it. */
+    fun setObjectOption(rangeMin: Double, key: String, value: String) = changeObject { NativeEngine.setObjectOption(it, rangeMin, key, value) }
+
+    /** Adds ([oldMin] < 0), moves or (min >= max) removes a height range of the selected object. */
+    fun editHeightRange(oldMin: Double, min: Double, max: Double) = changeObject { NativeEngine.editHeightRange(it, oldMin, min, max) }
 
     // ------------------------------------------------------------------ painting
 

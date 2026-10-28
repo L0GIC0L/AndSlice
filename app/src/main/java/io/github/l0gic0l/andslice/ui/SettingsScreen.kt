@@ -436,7 +436,7 @@ private fun OptionRow(vm: SlicerViewModel, def: OptionDef, shape: Shape, onHelp:
 }
 
 @Composable
-private fun OptionEditor(def: OptionDef, value: String, onChange: (String) -> Unit) {
+internal fun OptionEditor(def: OptionDef, value: String, onChange: (String) -> Unit) {
     val isText = def.type == "string"
     when {
         def.type == "bool" && !def.nullable ->

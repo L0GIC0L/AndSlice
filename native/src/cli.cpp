@@ -15,6 +15,10 @@
 // an 8 mm brush. Options: fill (smart fill), heightN (a band N mm high), below (paint from
 // under the bed), overhangsN (every overhang tilted less than N degrees, instead of a touch).
 //
+// --adaptive OBJECT=Q gives the object variable layer heights at PrusaSlicer's quality/speed factor Q (0..1).
+// --object-set OBJECT:KEY=VALUE overrides an option for one object, and
+// --range OBJECT:MIN-MAX:KEY=VALUE for one object between two heights.
+//
 // --project IN.3mf opens a 3MF project as the plate (before the models are added), and
 // --save-project OUT.3mf saves the plate with the settings once the models are added and painted.
 #include <cstdio>
@@ -46,7 +50,8 @@ int main(int argc, char** argv)
     std::vector<std::string> filaments;
     std::vector<std::pair<std::string, std::string>> overrides;
     std::vector<std::pair<int, int>> extruders;
-    std::vector<std::pair<int, std::string>> paints;
+    std::vector<std::pair<int, std::string>> paints, object_sets, ranges;
+    std::vector<std::pair<int, float>> adaptive;
     std::vector<std::string> models;
     bool list = false;
 
@@ -74,6 +79,17 @@ int main(int argc, char** argv)
             if (eq == std::string::npos)
                 return usage();
             paints.emplace_back(std::stoi(kv.substr(0, eq)), kv.substr(eq + 1));
+        }
+        else if (a == "--adaptive" || a == "--object-set" || a == "--range") {
+            const std::string spec = next();
+            const size_t sep = spec.find(a == "--adaptive" ? '=' : ':');
+            if (sep == std::string::npos)
+                return usage();
+            const int index = std::stoi(spec.substr(0, sep));
+            if (a == "--adaptive")
+                adaptive.emplace_back(index, std::stof(spec.substr(sep + 1)));
+            else
+                (a == "--range" ? ranges : object_sets).emplace_back(index, spec.substr(sep + 1));
         }
         else if (a == "-o")         output = next();
         else if (a == "--list")     list = true;
@@ -183,6 +199,27 @@ int main(int argc, char** argv)
             std::cout << "paint " << spec << (hit ? " hit: " : " missed: ") << engine.paint_state_json() << "\n";
             engine.paint_end();
         }
+        auto object_id = [&objects](int index) { return objects.at(size_t(index))["id"].get<uint64_t>(); };
+        for (const auto& [index, quality] : adaptive)
+            engine.set_layer_quality(object_id(index), quality);
+        for (const auto& [index, kv] : object_sets) {
+            const size_t eq = kv.find('=');
+            engine.set_object_option(object_id(index), -1., kv.substr(0, eq), kv.substr(eq + 1));
+        }
+        for (const auto& [index, spec] : ranges) {
+            // MIN-MAX:KEY=VALUE
+            const size_t dash = spec.find('-'), colon = spec.find(':'), eq = spec.find('=');
+            const double lo = std::stod(spec.substr(0, dash)), hi = std::stod(spec.substr(dash + 1, colon - dash - 1));
+            const json settings = json::parse(engine.object_settings_json(object_id(index)));
+            bool exists = false;
+            for (const json& r : settings["ranges"])
+                exists = exists || std::abs(r["min"].get<double>() - lo) < 1e-4;
+            if (!exists)
+                engine.edit_height_range(object_id(index), -1., lo, hi);
+            engine.set_object_option(object_id(index), lo, spec.substr(colon + 1, eq - colon - 1), spec.substr(eq + 1));
+        }
+        if (!object_sets.empty() || !ranges.empty())
+            std::cout << "object settings: " << engine.object_settings_json(object_id(0)).substr(0, 300) << "\n";
         std::cout << "plate: " << engine.objects_json() << "\n";
 
         andslice::SliceRequest req{ printer, print, filaments, overrides, output };

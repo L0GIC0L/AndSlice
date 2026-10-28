@@ -234,6 +234,44 @@ class EngineTest {
     }
 
     @Test
+    fun adaptiveLayersAndObjectSettings() {
+        val stl = File(dir, "pyramid.stl").apply { writeText(pyramidStl()) }
+        NativeEngine.addModel(stl.path, "pyramid")
+        val pyramid = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        val out = File(dir, "out").apply { mkdirs() }
+        fun layers(): Int {
+            val result = SliceResult.parse(
+                NativeEngine.slice(presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament), emptyArray(), emptyArray(), out.path + "/", null)
+            )
+            assertTrue(result.error ?: "", result.ok)
+            return result.layerZs.size
+        }
+        val uniform = layers()
+
+        // The finest adaptive layers: more of them on the sloped sides.
+        NativeEngine.setLayerQuality(pyramid.id, 0f)
+        val adaptive = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertEquals(0f, adaptive.layerQuality)
+        assertTrue(adaptive.layerProfile)
+        assertTrue(layers() > uniform)
+        NativeEngine.setLayerQuality(pyramid.id, -1f)
+        assertEquals(uniform, layers())
+
+        // More perimeters for this object, and 0.1 mm layers with denser infill from 6 to 12 mm.
+        NativeEngine.setObjectOption(pyramid.id, -1.0, "perimeters", "5")
+        NativeEngine.editHeightRange(pyramid.id, -1.0, 6.0, 12.0)
+        NativeEngine.setObjectOption(pyramid.id, 6.0, "layer_height", "0.1")
+        NativeEngine.setObjectOption(pyramid.id, 6.0, "fill_density", "80%")
+        val settings = io.github.l0gic0l.andslice.engine.ObjectSettings.parse(NativeEngine.objectSettingsJson(pyramid.id))
+        assertEquals("5", settings.options["perimeters"])
+        assertEquals(listOf(6.0 to 12.0), settings.ranges.map { it.min to it.max })
+        assertEquals("80%", settings.ranges.single().options["fill_density"])
+        assertTrue("fill_density" in settings.rangeKeys)
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().ownSettings)
+        assertTrue(layers() > uniform)
+    }
+
+    @Test
     fun savesAndOpensProjects() {
         val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
         NativeEngine.addModel(stl.path, "cube")
@@ -267,25 +305,7 @@ class EngineTest {
     @Test
     fun zAntiAliasingFollowsSlopedTops() {
         // A pyramid: every layer has a sloped top edge to follow.
-        val stl = File(dir, "pyramid.stl").apply {
-            val tri = listOf(
-                listOf(0.0, 0.0, 0.0, 30.0, 0.0, 0.0, 15.0, 15.0, 12.0),
-                listOf(30.0, 0.0, 0.0, 30.0, 30.0, 0.0, 15.0, 15.0, 12.0),
-                listOf(30.0, 30.0, 0.0, 0.0, 30.0, 0.0, 15.0, 15.0, 12.0),
-                listOf(0.0, 30.0, 0.0, 0.0, 0.0, 0.0, 15.0, 15.0, 12.0),
-                listOf(0.0, 0.0, 0.0, 30.0, 30.0, 0.0, 30.0, 0.0, 0.0),
-                listOf(0.0, 0.0, 0.0, 0.0, 30.0, 0.0, 30.0, 30.0, 0.0),
-            )
-            writeText(buildString {
-                append("solid pyramid\n")
-                for (t in tri) {
-                    append("facet normal 0 0 0\nouter loop\n")
-                    for (i in 0 until 3) append("vertex ${t[3 * i]} ${t[3 * i + 1]} ${t[3 * i + 2]}\n")
-                    append("endloop\nendfacet\n")
-                }
-                append("endsolid pyramid\n")
-            })
-        }
+        val stl = File(dir, "pyramid.stl").apply { writeText(pyramidStl()) }
         NativeEngine.addModel(stl.path, "pyramid")
         val out = File(dir, "out").apply { mkdirs() }
         val result = SliceResult.parse(
@@ -298,6 +318,27 @@ class EngineTest {
         // Extrusions that also move Z: the nozzle follows the slope within a layer.
         val contoured = Regex("^G1 X[-\\d.]+ Y[-\\d.]+ Z[-\\d.]+ E", RegexOption.MULTILINE)
         assertTrue(contoured.containsMatchIn(File(result.path!!).readText()))
+    }
+
+    /** A 30 mm wide, 12 mm high pyramid: every layer has sloped edges. */
+    private fun pyramidStl(): String {
+        val tri = listOf(
+            listOf(0.0, 0.0, 0.0, 30.0, 0.0, 0.0, 15.0, 15.0, 12.0),
+            listOf(30.0, 0.0, 0.0, 30.0, 30.0, 0.0, 15.0, 15.0, 12.0),
+            listOf(30.0, 30.0, 0.0, 0.0, 30.0, 0.0, 15.0, 15.0, 12.0),
+            listOf(0.0, 30.0, 0.0, 0.0, 0.0, 0.0, 15.0, 15.0, 12.0),
+            listOf(0.0, 0.0, 0.0, 30.0, 30.0, 0.0, 30.0, 0.0, 0.0),
+            listOf(0.0, 0.0, 0.0, 0.0, 30.0, 0.0, 30.0, 30.0, 0.0),
+        )
+        return buildString {
+            append("solid pyramid\n")
+            for (t in tri) {
+                append("facet normal 0 0 0\nouter loop\n")
+                for (i in 0 until 3) append("vertex ${t[3 * i]} ${t[3 * i + 1]} ${t[3 * i + 2]}\n")
+                append("endloop\nendfacet\n")
+            }
+            append("endsolid pyramid\n")
+        }
     }
 
     private fun cubeStl(size: Double): String {

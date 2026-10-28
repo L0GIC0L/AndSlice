@@ -57,6 +57,16 @@ object NativeEngine {
     /** Wipe tower {x, y}; arranging may move it. */
     external fun wipeTowerPosition(): FloatArray
 
+    // Per-object settings
+    /** Variable layer height at PrusaSlicer's quality/speed factor (0 thinnest layers, 1 thickest); below 0 turns it off. */
+    external fun setLayerQuality(id: Long, quality: Float)
+    /** {"options", "ranges", "layer_quality", "object_keys", "range_keys"}; see [ObjectSettings]. */
+    external fun objectSettingsJson(id: Long): String
+    /** Sets an option of the object, or of its height range starting at [rangeMin] (>= 0); "" removes it. */
+    external fun setObjectOption(id: Long, rangeMin: Double, key: String, value: String)
+    /** Adds ([oldMin] < 0), moves or (min >= max) removes a height range. */
+    external fun editHeightRange(id: Long, oldMin: Double, min: Double, max: Double)
+
     // Projects
     /** Saves the plate with these settings (presets plus overrides) as a 3MF project at [path]. */
     external fun saveProject(

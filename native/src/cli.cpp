@@ -14,6 +14,9 @@
 // touch would: MODE is supports or colors, STATE the support type or extruder (0 erases), with
 // an 8 mm brush. Options: fill (smart fill), heightN (a band N mm high), below (paint from
 // under the bed), overhangsN (every overhang tilted less than N degrees, instead of a touch).
+//
+// --project IN.3mf opens a 3MF project as the plate (before the models are added), and
+// --save-project OUT.3mf saves the plate with the settings once the models are added and painted.
 #include <cstdio>
 #include <cstring>
 #include <iostream>
@@ -39,7 +42,7 @@ int main(int argc, char** argv)
 {
     std::string bundle, printer, print, output;
     std::vector<std::string> vendors;
-    std::string save;
+    std::string save, project, save_project;
     std::vector<std::string> filaments;
     std::vector<std::pair<std::string, std::string>> overrides;
     std::vector<std::pair<int, int>> extruders;
@@ -53,6 +56,8 @@ int main(int argc, char** argv)
         if (a == "--bundle")        bundle = next();
         else if (a == "--vendor")   vendors.push_back(next());
         else if (a == "--save")     save = next();
+        else if (a == "--project")  project = next();
+        else if (a == "--save-project") save_project = next();
         else if (a == "--printer")  printer = next();
         else if (a == "--print")    print = next();
         else if (a == "--filament") filaments.push_back(next());
@@ -83,7 +88,7 @@ int main(int argc, char** argv)
         else
             models.push_back(a);
     }
-    if (bundle.empty() || (!list && save.empty() && (output.empty() || models.empty())))
+    if (bundle.empty() || (!list && save.empty() && save_project.empty() && (output.empty() || (models.empty() && project.empty()))))
         return usage();
 
     try {
@@ -131,6 +136,17 @@ int main(int argc, char** argv)
             tower.brim = 5.f;
             engine.set_wipe_tower(tower);
         }
+        if (!project.empty()) {
+            json opened = json::parse(engine.open_project(project));
+            const json& config = opened["config"];
+            std::cout << "project " << project << ": " << opened["ids"].dump() << ", "
+                      << (config.is_object() ? config.size() : 0) << " settings";
+            if (config.is_object())
+                for (const char* key : { "printer_settings_id", "print_settings_id", "filament_settings_id", "fill_density", "filament_colour" })
+                    if (config.contains(key))
+                        std::cout << ", " << key << "=" << config[key].get<std::string>();
+            std::cout << "\n";
+        }
         for (const std::string& m : models)
             std::cout << "loaded " << m << ": " << engine.add_model(m, "") << "\n";
         const json objects = json::parse(engine.objects_json());
@@ -168,6 +184,12 @@ int main(int argc, char** argv)
         std::cout << "plate: " << engine.objects_json() << "\n";
 
         andslice::SliceRequest req{ printer, print, filaments, overrides, output };
+        if (!save_project.empty()) {
+            engine.save_project(save_project, req);
+            std::cout << "saved project " << save_project << " (" << boost::filesystem::file_size(save_project) << " bytes)\n";
+            if (output.empty())
+                return 0;
+        }
         const std::string result = engine.slice(req, [](int percent, const std::string& msg) {
             std::cout << percent << "% " << msg << "\n";
         });

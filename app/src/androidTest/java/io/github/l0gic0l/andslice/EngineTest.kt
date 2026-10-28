@@ -209,6 +209,37 @@ class EngineTest {
     }
 
     @Test
+    fun savesAndOpensProjects() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        NativeEngine.setTransform(cube.id, cube.transform(x = 60.0, y = 70.0, rz = 30.0))
+        assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.SUPPORTS))
+        assertTrue(NativeEngine.paintOverhangs(PaintMode.ENFORCE, 45f))
+        NativeEngine.paintEnd()
+
+        val project = File(dir, "plate.3mf")
+        NativeEngine.saveProject(
+            project.path, presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament),
+            arrayOf("fill_density"), arrayOf("42%"),
+        )
+        assertTrue(ModelFiles.isProject(project))
+        NativeEngine.clearPlate()
+
+        val opened = org.json.JSONObject(NativeEngine.openProject(project.path))
+        assertEquals(1, opened.getJSONArray("ids").length())
+        val config = opened.getJSONObject("config")
+        assertEquals("42%", config.getString("fill_density"))
+        assertEquals(presets.printer, ModelFiles.parseStrings(config.getString("printer_settings_id")).single())
+        // Where it was, as it was turned, with its painting.
+        val restored = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertEquals(60.0, restored.offset[0], 1e-3)
+        assertEquals(70.0, restored.offset[1], 1e-3)
+        assertEquals(30.0, restored.rotation[2], 1e-3)
+        assertTrue(restored.supportPainted)
+    }
+
+    @Test
     fun zAntiAliasingFollowsSlopedTops() {
         // A pyramid: every layer has a sloped top edge to follow.
         val stl = File(dir, "pyramid.stl").apply {

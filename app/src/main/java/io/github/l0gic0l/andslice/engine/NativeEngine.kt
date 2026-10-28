@@ -57,6 +57,14 @@ object NativeEngine {
     /** Wipe tower {x, y}; arranging may move it. */
     external fun wipeTowerPosition(): FloatArray
 
+    // Projects
+    /** Saves the plate with these settings (presets plus overrides) as a 3MF project at [path]. */
+    external fun saveProject(
+        path: String, printer: String, print: String, filaments: Array<String>, keys: Array<String>, values: Array<String>,
+    )
+    /** Replaces the plate with the objects of a 3MF project; returns {"ids", "config"}. */
+    external fun openProject(path: String): String
+
     // Painting (PrusaSlicer's TriangleSelector); see PaintMode for modes and states.
     /** Starts painting the object's surface in [mode] ([PaintMode.SUPPORTS] or [PaintMode.COLORS]). */
     external fun paintBegin(id: Long, mode: Int): Boolean

@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,6 +30,8 @@ import io.github.l0gic0l.andslice.printers.SavedPrinter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -38,6 +41,14 @@ import java.util.UUID
 
 enum class ViewMode { Plate, Preview }
 
+/** Files that wait for the user's choice before they go on the plate. */
+sealed interface PendingImport {
+    /** Models unpacked from zip archives; the user picks the ones to add. */
+    data class Archive(val models: List<ModelFiles.Unpacked>) : PendingImport
+    /** A project, while other objects are on the plate: open it in their place, or add its objects. */
+    data class Project(val file: File) : PendingImport
+}
+
 class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("andslice", Context.MODE_PRIVATE)
@@ -45,6 +56,11 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var loadedBundles: List<String> = BASE_BUNDLES
     /** Completed once the native engine has loaded the profiles; engine calls wait for it. */
     private val engineReady = CompletableDeferred<Unit>()
+    /** The plate of the last session, saved a moment after every change. */
+    private val autosaveFile = File(app.filesDir, "plate/plate.3mf")
+    private var autosaveJob: Job? = null
+    /** Project files are written one at a time. */
+    private val projectThread = Dispatchers.IO.limitedParallelism(1)
 
     var initError by mutableStateOf<String?>(null); private set
     var ready by mutableStateOf(false); private set
@@ -112,6 +128,8 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     private fun initEngine(app: Application) {
         // Built-in bundles, then the vendor bundles of the saved printers.
         loadedBundles = (BASE_BUNDLES + PrinterStore.bundles(app)).distinct()
+        // Imported files are copied here; the engine keeps what it needs in memory.
+        File(app.cacheDir, "models").deleteRecursively()
         val dataDir = File(app.filesDir, "prusaslicer").apply { mkdirs() }
         val resources = File(app.filesDir, "resources").apply { mkdirs() }
         NativeEngine.init(dataDir.absolutePath, resources.absolutePath, bundleFiles(loadedBundles))
@@ -136,6 +154,8 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         NativeEngine.setPrinter(p)
         val cfg = loadConfig(p, pr, fi)
         val colors = slotColorsFor(lists.extruders, savedColors, cfg)
+        val plate = restorePlate()
+        val tower = NativeEngine.wipeTowerPosition()
 
         viewModelScope.launch {
             optionDefs = defs
@@ -146,7 +166,13 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             slotColors = colors
             config = cfg
             overrides = restored
+            objects = plate
             resetWipeTowerPosition()
+            // The plate of the last session has its wipe tower where it was left.
+            if (plate.isNotEmpty() && (tower[0] != 0f || tower[1] != 0f)) {
+                wipeTowerX = tower[0]
+                wipeTowerY = tower[1]
+            }
             updateArrangeDistance()
             syncSlots()
             redraw()
@@ -446,24 +472,86 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ plate
 
+    /** Counts imports, so the app can show the plate they land on. */
+    var importRequests by mutableIntStateOf(0); private set
+
+    /** Models, zip archives of models and projects opened with, shared to or imported into the app. */
     fun importModels(context: Context, uris: List<Uri>) {
         if (uris.isEmpty()) return
+        importRequests++
         launchEngine("Loading model…") {
-            var lastIds: List<Long> = emptyList()
-            for (uri in uris) {
-                val name = displayName(context, uri)
-                val dir = File(context.cacheDir, "models/${UUID.randomUUID()}").apply { mkdirs() }
-                val file = File(dir, name)
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    file.outputStream().use { input.copyTo(it) }
-                } ?: throw IllegalStateException("Cannot open $name")
-                val json = JSONObject(NativeEngine.addModel(file.absolutePath, name.substringBeforeLast('.')))
-                val ids = json.getJSONArray("ids")
-                lastIds = (0 until ids.length()).map { ids.getLong(it) }
-            }
-            refreshObjects()
-            lastIds.lastOrNull()?.let { selectOnEngine(it) }
+            addFiles(uris.map { copyToCache(context, it) })
         }
+    }
+
+    /** Adds files on this device: a project on an empty plate opens with its settings, archives are unpacked. */
+    fun importFiles(files: List<File>) {
+        importRequests++
+        launchEngine("Loading model…") { addFiles(files) }
+    }
+
+    private suspend fun addFiles(files: List<File>) {
+        files.singleOrNull()?.takeIf { ModelFiles.isProject(it) }?.let { project ->
+            if (objects.isEmpty()) openProjectFile(project) else withContext(Dispatchers.Main) { pendingImport = PendingImport.Project(project) }
+            return
+        }
+        val unpacked = mutableListOf<ModelFiles.Unpacked>()
+        val models = mutableListOf<File>()
+        for (file in files) {
+            if (!ModelFiles.isArchive(file.name)) {
+                models += file
+                continue
+            }
+            val found = ModelFiles.extractModels(file, File(file.parentFile, file.nameWithoutExtension))
+            if (found.isEmpty()) withContext(Dispatchers.Main) { message = "${file.name} has no STL, 3MF or OBJ files in it." }
+            unpacked += found
+        }
+        // A single model goes straight on the plate; from several the user picks.
+        if (unpacked.size == 1) models += unpacked.single().file
+        addModelFiles(models)
+        if (unpacked.size > 1) withContext(Dispatchers.Main) { pendingImport = PendingImport.Archive(unpacked) }
+    }
+
+    private suspend fun addModelFiles(files: List<File>) {
+        if (files.isEmpty()) return
+        var lastIds: List<Long> = emptyList()
+        for (file in files) {
+            val json = JSONObject(NativeEngine.addModel(file.absolutePath, file.nameWithoutExtension))
+            val ids = json.getJSONArray("ids")
+            lastIds = (0 until ids.length()).map { ids.getLong(it) }
+        }
+        refreshObjects()
+        lastIds.lastOrNull()?.let { selectOnEngine(it) }
+    }
+
+    var pendingImport by mutableStateOf<PendingImport?>(null); private set
+
+    /** Adds the models picked from an archive. */
+    fun addUnpacked(models: List<ModelFiles.Unpacked>) {
+        pendingImport = null
+        launchEngine("Loading model…") { addModelFiles(models.map { it.file }) }
+    }
+
+    /** Opens the waiting project in place of the plate, or adds its objects to the plate. */
+    fun openPendingProject(replacePlate: Boolean) {
+        val project = (pendingImport as? PendingImport.Project)?.file ?: return
+        pendingImport = null
+        launchEngine("Loading model…") { if (replacePlate) openProjectFile(project) else addModelFiles(listOf(project)) }
+    }
+
+    fun dismissImport() {
+        pendingImport = null
+    }
+
+    /** Copies a document to the cache, where the engine can read it. */
+    private fun copyToCache(context: Context, uri: Uri): File {
+        val name = displayName(context, uri)
+        val dir = File(context.cacheDir, "models/${UUID.randomUUID()}").apply { mkdirs() }
+        val file = File(dir, name)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            file.outputStream().use { input.copyTo(it) }
+        } ?: throw IllegalStateException("Cannot open $name")
+        return file
     }
 
     private fun displayName(context: Context, uri: Uri): String {
@@ -472,16 +560,145 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             if (c.moveToFirst()) name = c.getString(0)
         }
         val base = (name ?: uri.lastPathSegment ?: "model").substringAfterLast('/')
-        val ext = base.substringAfterLast('.', "").lowercase()
-        if (ext in MODEL_EXTENSIONS) return base
+        if (ModelFiles.isModel(base) || ModelFiles.isArchive(base)) return base
         // Some file managers drop the extension; fall back on the MIME type.
         val mime = context.contentResolver.getType(uri) ?: ""
         val guessed = when {
             "3mf" in mime || "3dmanufacturing" in mime -> "3mf"
             "obj" in mime -> "obj"
+            "zip" in mime -> "zip"
             else -> "stl"
         }
         return "$base.$guessed"
+    }
+
+    // ------------------------------------------------------------------ projects
+
+    /** File name for saving the plate as a project. */
+    val projectName: String
+        get() = (objects.firstOrNull()?.name?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "plate") + ".3mf"
+
+    /** The settings that go with the plate into slicing and projects: overrides, and the slot colors as filament colors. */
+    private fun plateSettings(): Map<String, String> = overrides + ("filament_colour" to slotColors.joinToString(";"))
+
+    private fun saveProjectTo(file: File) {
+        val settings = plateSettings()
+        val keys = settings.keys.toTypedArray()
+        NativeEngine.saveProject(
+            file.absolutePath, printer, print, filaments.toTypedArray(), keys, keys.map { settings.getValue(it) }.toTypedArray(),
+        )
+    }
+
+    /** Saves the plate, its painting and the settings as a 3MF project that PrusaSlicer opens too. */
+    fun saveProject(context: Context, uri: Uri) = launchEngine("Saving project…", projectThread) {
+        val temp = File(context.cacheDir, "project.3mf")
+        try {
+            saveProjectTo(temp)
+            context.contentResolver.openOutputStream(uri, "wt")?.use { out -> temp.inputStream().use { it.copyTo(out) } }
+                ?: throw IllegalStateException("Cannot write the project file.")
+        } finally {
+            temp.delete()
+        }
+        withContext(Dispatchers.Main) { message = "Project saved." }
+    }
+
+    /** Replaces the plate with a 3MF project; its settings come along when it is for this printer. */
+    fun openProject(context: Context, uri: Uri) = launchEngine("Opening project…") {
+        openProjectFile(copyToCache(context, uri))
+    }
+
+    private suspend fun openProjectFile(file: File) {
+        val json = JSONObject(NativeEngine.openProject(file.absolutePath))
+        NativeEngine.clearPreview()
+        withContext(Dispatchers.Main) {
+            result = null
+            mode = ViewMode.Plate
+            transformOpen = false
+            layFaceMode = false
+        }
+        val project = json.optJSONObject("config")?.let { o -> o.keys().asSequence().associateWith { o.getString(it) } }
+        val name = file.nameWithoutExtension
+        if (project != null) applyProjectSettings(project, name) else withContext(Dispatchers.Main) { message = "Opened $name." }
+        refreshObjects()
+    }
+
+    /**
+     * Uses the profiles and setting changes of a project made for the selected printer. A project
+     * for another printer keeps the current settings, which are the ones this printer prints with.
+     */
+    private suspend fun applyProjectSettings(project: Map<String, String>, name: String) {
+        val lists = presets ?: return
+        val projectPrinter = ModelFiles.parseStrings(project["printer_settings_id"].orEmpty()).firstOrNull().orEmpty()
+        if (projectPrinter != printer) {
+            withContext(Dispatchers.Main) {
+                message = "Opened $name. It was set up for ${projectPrinter.ifEmpty { "another printer" }}, so your current settings apply."
+            }
+            return
+        }
+        val newPrint = ModelFiles.parseStrings(project["print_settings_id"].orEmpty()).firstOrNull()?.takeIf { it in lists.prints } ?: print
+        val projectFilaments = ModelFiles.parseStrings(project["filament_settings_id"].orEmpty())
+        val newFilaments = List(lists.extruders) { i ->
+            projectFilaments.getOrNull(i)?.takeIf { it in lists.allFilaments } ?: filaments.getOrElse(i) { defaultFilament(lists) }
+        }
+        val cfg = loadConfig(printer, newPrint, newFilaments)
+        val defs = optionDefs
+        val restored = ModelFiles.projectOverrides(project, cfg) { defs?.typeOf(it) != null }
+        val colors = ModelFiles.parseStrings(project["filament_colour"].orEmpty()).filter { it.startsWith("#") }
+        withContext(Dispatchers.Main) {
+            print = newPrint
+            filaments = newFilaments
+            config = cfg
+            overrides = restored
+            if (colors.size >= lists.extruders) slotColors = colors.take(lists.extruders)
+            settingsChanged()
+            message = "Opened $name" + if (restored.isEmpty()) "." else " with its ${restored.size} changed settings."
+        }
+    }
+
+    /** Puts the plate of the last session back; a file that does not load is dropped. */
+    private fun restorePlate(): List<PlateObject> {
+        if (!autosaveFile.exists()) return emptyList()
+        return try {
+            NativeEngine.openProject(autosaveFile.absolutePath)
+            PlateObject.parseList(NativeEngine.objectsJson())
+        } catch (e: Exception) {
+            Log.w(TAG, "Dropping the saved plate", e)
+            autosaveFile.delete()
+            emptyList()
+        }
+    }
+
+    /** Saves the plate a moment after it changed, so that it is there again next time. */
+    private fun scheduleAutosave() {
+        autosaveJob?.cancel()
+        autosaveJob = viewModelScope.launch {
+            delay(AUTOSAVE_DELAY_MS)
+            autosave()
+        }
+    }
+
+    /** Saves a pending change right away, e.g. when the app goes to the background. */
+    fun flushAutosave() {
+        if (autosaveJob?.isActive != true) return
+        autosaveJob?.cancel()
+        autosaveJob = viewModelScope.launch { autosave() }
+    }
+
+    private suspend fun autosave() {
+        val empty = objects.isEmpty()
+        withContext(projectThread) {
+            try {
+                if (empty) {
+                    autosaveFile.delete()
+                } else {
+                    autosaveFile.parentFile?.mkdirs()
+                    saveProjectTo(autosaveFile)
+                }
+            } catch (e: Exception) {
+                // Not worth interrupting the user; the next change tries again.
+                Log.w(TAG, "Saving the plate failed", e)
+            }
+        }
     }
 
     private suspend fun refreshObjects() {
@@ -502,6 +719,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             if (result != null) resultStale = true
             syncSlots()
             redraw()
+            scheduleAutosave()
         }
     }
 
@@ -731,8 +949,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             deleteRecursively()
             mkdirs()
         }
-        // Slot colors go to PrusaSlicer as the filament colors (preview and G-code metadata).
-        val settings = overrides + ("filament_colour" to slotColors.joinToString(";"))
+        val settings = plateSettings()
         val keys = settings.keys.toTypedArray()
         val values = keys.map { settings.getValue(it) }.toTypedArray()
         val filamentNames = filaments.toTypedArray()
@@ -846,7 +1063,8 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         const val CUSTOM_PRINTER_BASE = "Custom printer"
         const val CUSTOM_PRINT = "0.20mm Standard @Custom"
         const val CUSTOM_FILAMENT = "Generic PLA @Template"
-        val MODEL_EXTENSIONS = setOf("stl", "3mf", "obj", "amf")
+        private const val TAG = "AndSlice"
+        private const val AUTOSAVE_DELAY_MS = 2_000L
         /** Keys behind the quick settings bar, kept when the print profile changes. */
         val QUICK_SETTINGS = setOf("support_material", "support_material_auto", "support_material_buildplate_only", "fill_density", "brim_width")
         private const val KEY_PRINTER = "printer"

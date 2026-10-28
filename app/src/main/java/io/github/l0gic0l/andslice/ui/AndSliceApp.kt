@@ -32,10 +32,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewInAr
@@ -68,6 +70,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -130,6 +133,15 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
         val m = printer.message ?: return@LaunchedEffect
         snackbar.showSnackbar(m)
         printer.message = null
+    }
+    // Files opened from elsewhere land on the plate, wherever the app was.
+    var seenImports by rememberSaveable { mutableIntStateOf(vm.importRequests) }
+    LaunchedEffect(vm.importRequests) {
+        if (vm.importRequests != seenImports) {
+            seenImports = vm.importRequests
+            screen = Screen.Slicer
+            vm.showPlate()
+        }
     }
     // Slicing follows the active saved printer: its vendor profiles and its printer preset.
     val active = printer.active
@@ -226,6 +238,7 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
                     if (!rail) AppNavigationBar(current, onSelect = ::navigate)
                 }
             }
+            ImportDialog(vm)
         }
     }
 }
@@ -289,6 +302,12 @@ private fun SlicerScreen(
     val openModels = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.importModels(context, uris)
     }
+    val openProject = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { vm.openProject(context, it) }
+    }
+    val saveProject = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("model/3mf")) { uri ->
+        uri?.let { vm.saveProject(context, it) }
+    }
     val preview = vm.mode == ViewMode.Preview
     BackHandler(enabled = preview) { vm.showPlate() }
     BackHandler(enabled = vm.transformOpen) { vm.transformOpen = false }
@@ -321,6 +340,17 @@ private fun SlicerScreen(
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More options") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             if (!preview) {
+                                DropdownMenuItem(
+                                    text = { Text("Open project…") },
+                                    leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
+                                    onClick = { menu = false; openProject.launch(arrayOf("*/*")) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Save project…") },
+                                    leadingIcon = { Icon(Icons.Default.Save, null) },
+                                    enabled = vm.objects.isNotEmpty(),
+                                    onClick = { menu = false; saveProject.launch(vm.projectName) },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Arrange") },
                                     leadingIcon = { Icon(Icons.Default.Apps, null) },

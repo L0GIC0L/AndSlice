@@ -49,7 +49,13 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
-    /** Models opened with or shared to the app. */
+    override fun onStop() {
+        super.onStop()
+        // The process may not come back; keep the latest plate.
+        viewModel.flushAutosave()
+    }
+
+    /** Models, archives and projects opened with or shared to the app. */
     private fun handleIntent(intent: Intent?) {
         val uris = when (intent?.action) {
             Intent.ACTION_VIEW -> listOfNotNull(intent.data)
@@ -57,6 +63,10 @@ class MainActivity : ComponentActivity() {
                 if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
                 else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_STREAM)
             )
+            Intent.ACTION_SEND_MULTIPLE -> (
+                if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else @Suppress("DEPRECATION") intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+            ).orEmpty()
             else -> emptyList()
         }
         if (uris.isNotEmpty()) viewModel.importModels(this, uris)

@@ -40,6 +40,16 @@ std::vector<std::string> to_strings(JNIEnv* env, jobjectArray array)
     return out;
 }
 
+// Parallel key and value arrays as pairs.
+std::vector<std::pair<std::string, std::string>> to_pairs(JNIEnv* env, jobjectArray keys, jobjectArray values)
+{
+    const std::vector<std::string> k = to_strings(env, keys), v = to_strings(env, values);
+    std::vector<std::pair<std::string, std::string>> out;
+    for (size_t i = 0; i < std::min(k.size(), v.size()); ++i)
+        out.emplace_back(k[i], v[i]);
+    return out;
+}
+
 void throw_java(JNIEnv* env, const char* message)
 {
     jclass cls = env->FindClass("java/lang/RuntimeException");
@@ -113,12 +123,9 @@ JNIEXPORT jstring JNICALL FN(savePreset)(JNIEnv* env, jobject, jstring type, jst
                                         jobjectArray filaments, jobjectArray keys, jobjectArray values)
 {
     return guarded(env, [&] {
-        const std::vector<std::string> k = to_strings(env, keys), v = to_strings(env, values);
-        std::vector<std::pair<std::string, std::string>> overrides;
-        for (size_t i = 0; i < std::min(k.size(), v.size()); ++i)
-            overrides.emplace_back(k[i], v[i]);
         return to_jstring(env, Engine::get().save_preset(to_string(env, type), to_string(env, name), to_string(env, printer),
-                                                         to_string(env, print), to_strings(env, filaments), overrides));
+                                                         to_string(env, print), to_strings(env, filaments),
+                                                         to_pairs(env, keys, values)));
     }, (jstring) nullptr);
 }
 
@@ -268,6 +275,26 @@ JNIEXPORT jfloatArray JNICALL FN(wipeTowerPosition)(JNIEnv* env, jobject)
         env->SetFloatArrayRegion(out, 0, 2, v);
         return out;
     }, (jfloatArray) nullptr);
+}
+
+// ------------------------------------------------------------------- projects
+
+JNIEXPORT void JNICALL FN(saveProject)(JNIEnv* env, jobject, jstring path, jstring printer, jstring print,
+                                      jobjectArray filaments, jobjectArray keys, jobjectArray values)
+{
+    guarded_void(env, [&] {
+        andslice::SliceRequest settings;
+        settings.printer   = to_string(env, printer);
+        settings.print     = to_string(env, print);
+        settings.filaments = to_strings(env, filaments);
+        settings.overrides = to_pairs(env, keys, values);
+        Engine::get().save_project(to_string(env, path), settings);
+    });
+}
+
+JNIEXPORT jstring JNICALL FN(openProject)(JNIEnv* env, jobject, jstring path)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().open_project(to_string(env, path))); }, (jstring) nullptr);
 }
 
 // ------------------------------------------------------------------- painting

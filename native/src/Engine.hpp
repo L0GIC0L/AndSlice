@@ -165,6 +165,14 @@ public:
     // Returns the id of the closest object hit by the world-space ray, or -1.
     int64_t     pick(const float origin[3], const float dir[3]);
 
+    // ---------------------------------------------------------------- projects
+    // Saves the plate, with painting and transforms, as a PrusaSlicer 3MF project, which PrusaSlicer
+    // and OrcaSlicer open too. The settings (presets plus overrides) are stored with it.
+    void        save_project(const std::string& path, const SliceRequest& settings);
+    // Replaces the plate with the objects of a 3MF project, where the project put them.
+    // Returns {"ids": [...], "config": {key: serialized value}}; "config" is missing for files without settings.
+    std::string open_project(const std::string& path);
+
     // ---------------------------------------------------------------- painting
     // Starts painting an object's model parts in the given PaintMode, with PrusaSlicer's
     // TriangleSelector, as its support and multi-material painting gizmos do.

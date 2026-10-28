@@ -12,7 +12,10 @@ Android 12+ and light and dark themes.
 
 ## Features
 
-- Import STL, 3MF, OBJ and AMF files (from the app, or "Open with" / "Share" from other apps)
+- Import STL, 3MF, OBJ and AMF files, and zip archives of them (from the app, or "Open with" / "Share" from
+  other apps). From an archive with several models, you pick the ones to add.
+- **Projects:** save the plate as a 3MF project with its painting, transforms and settings, and open it again
+  later, in AndSlice or in PrusaSlicer. The plate is also kept between sessions on its own.
 - 3D plate view of the 255 × 255 × 260 mm Kobra 3 bed: orbit, pan and zoom; tap to select, drag to move
 - Object tools: lay on face, duplicate, delete, auto-arrange, and a move / rotate / scale panel with step
   buttons (0.1 to 10 mm, 1 to 90°), typed values, sizes in mm or scale per axis
@@ -143,10 +146,12 @@ Repeat the two native steps with `x86_64` for emulator builds.
   `build/native/host/andslice_cli --bundle app/src/main/assets/profiles/AnycubicKobra3.ini -o out/ model.stl`
 - `./gradlew testDebugUnitTest` runs the JVM tests, including the OctoPrint client against a fake server.
 - `./gradlew connectedDebugAndroidTest` runs the on-device tests: a full Kobra 3 slice through the JNI
-  bridge, filament painting with undo, Z anti-aliasing on a pyramid, an app launch test, and the plate screen
+  bridge, filament painting with undo, saving and opening a project, Z anti-aliasing on a pyramid, an app
+  launch test, and the plate screen
   laid out as on an unfolded foldable. CI runs them on an x86_64 emulator.
-- The command-line harness also paints (`--paint 0=colors:2`, `--paint 0=supports:1:below`) and takes any
-  option with `--set`, such as `--set zaa_enabled=1`.
+- The command-line harness also paints (`--paint 0=colors:2`, `--paint 0=supports:1:below`), takes any
+  option with `--set`, such as `--set zaa_enabled=1`, and saves and opens projects
+  (`--save-project plate.3mf`, `--project plate.3mf`).
 
 ### Release signing
 

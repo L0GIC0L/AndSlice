@@ -24,6 +24,7 @@
 #include "libslic3r/AABBMesh.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/FileReader.hpp"
+#include "libslic3r/Format/3mf.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/Model.hpp"
@@ -900,6 +901,89 @@ std::vector<PlateObject> Engine::plate_snapshot()
         out.push_back(std::move(po));
     }
     return out;
+}
+
+// ------------------------------------------------------------------- projects
+
+void Engine::save_project(const std::string& path, const SliceRequest& settings)
+{
+    std::vector<PlateObject> scene = plate_snapshot();
+    DynamicPrintConfig config;
+    Model model;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        resolve_config(settings.printer, settings.print, settings.filaments);
+        // Without the print host keys, as PrusaSlicer saves projects.
+        config = m_bundle->full_config_secure();
+        // The model is copied so writing it does not hold up the UI; the meshes are shared.
+        model = *m_model;
+    }
+    for (const auto& [key, value] : settings.overrides) {
+        ConfigSubstitutionContext ctx(ForwardCompatibilitySubstitutionRule::Disable);
+        config.set_deserialize(key, value, ctx);
+    }
+    for (PlateObject& o : scene)
+        o.selected = false;
+    ThumbnailsParams params{ { Vec2d(256, 256) }, true, true, false, true };
+    const ThumbnailsList thumbnails = render_thumbnails(scene, bed(), params);
+
+    // Written next to the target first, so a failed save keeps the previous file.
+    const std::string temp = path + ".part";
+    if (!store_3mf(temp.c_str(), &model, &config, false, thumbnails.empty() ? nullptr : &thumbnails.front())) {
+        boost::filesystem::remove(temp);
+        throw RuntimeError("The project could not be saved.");
+    }
+    boost::filesystem::rename(temp, path);
+}
+
+std::string Engine::open_project(const std::string& path)
+{
+    // Parsing can take a while for big projects, so do it without holding the lock.
+    DynamicPrintConfig         config;
+    ConfigSubstitutionContext  substitutions(ForwardCompatibilitySubstitutionRule::EnableSilent);
+    boost::optional<Semver>    version;
+    Model loaded = FileReader::is_project_file(path)
+        ? FileReader::load_model_with_config(path, &config, &substitutions, version, FileReader::LoadAttribute::AddDefaultInstances)
+        : FileReader::load_model(path, FileReader::LoadAttribute::AddDefaultInstances);
+    if (loaded.objects.empty())
+        throw RuntimeError("The project contains no printable objects.");
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_paint.reset();
+    m_paint_cache.clear();
+    m_model->clear_objects();
+    m_meshes.clear();
+    m_selected = -1;
+    json ids = json::array();
+    for (ModelObject* src : loaded.objects) {
+        // One instance per object, as everywhere on the plate: further instances become copies.
+        for (size_t i = 0; i < std::max<size_t>(src->instances.size(), 1); ++i) {
+            ModelObject* o = m_model->add_object(*src);
+            for (size_t k = o->instances.size(); k-- > 0;)
+                if (k != i)
+                    o->delete_instance(k);
+            if (o->instances.empty())
+                o->add_instance();
+            o->invalidate_bounding_box();
+            o->ensure_on_bed();
+            ids.push_back(o->id().id);
+        }
+    }
+    m_model->get_wipe_tower_vector() = loaded.get_wipe_tower_vector();
+    m_model->get_custom_gcode_per_print_z_vector() = loaded.get_custom_gcode_per_print_z_vector();
+    m_wipe_tower.x = float(m_model->wipe_tower().position.x());
+    m_wipe_tower.y = float(m_model->wipe_tower().position.y());
+    m_model->update_print_volume_state(build_volume(m_bed));
+    touch_plate();
+
+    json out{ {"ids", ids} };
+    if (!config.empty()) {
+        json values = json::object();
+        for (const std::string& key : config.keys())
+            values[key] = config.opt_serialize(key);
+        out["config"] = values;
+    }
+    return out.dump();
 }
 
 // ------------------------------------------------------------------- painting

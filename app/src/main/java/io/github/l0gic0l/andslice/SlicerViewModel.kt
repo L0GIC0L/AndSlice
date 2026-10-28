@@ -1108,7 +1108,10 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         private const val TAG = "AndSlice"
         private const val AUTOSAVE_DELAY_MS = 2_000L
         /** Keys behind the quick settings bar, kept when the print profile changes. */
-        val QUICK_SETTINGS = setOf("support_material", "support_material_auto", "support_material_buildplate_only", "fill_density", "brim_width")
+        val QUICK_SETTINGS = setOf(
+            "support_material", "support_material_auto", "support_material_buildplate_only", "support_material_style",
+            "fill_density", "brim_width",
+        )
         private const val KEY_PRINTER = "printer"
         private const val KEY_PRINT = "print"
         private const val KEY_FILAMENT = "filament"

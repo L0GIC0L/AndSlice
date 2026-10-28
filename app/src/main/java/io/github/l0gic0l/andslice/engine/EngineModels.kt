@@ -73,6 +73,8 @@ data class PlateObject(
     val painted: Boolean = false,
     /** Has painted support enforcers or blockers. */
     val supportPainted: Boolean = false,
+    val seamPainted: Boolean = false,
+    val fuzzyPainted: Boolean = false,
 ) {
     /** Extruders that print this object. */
     val extruders: Set<Int> get() = parts.map { it.extruder }.toSet().ifEmpty { setOf(extruder) }
@@ -107,6 +109,8 @@ data class PlateObject(
                     } ?: emptyList(),
                     painted = o.optBoolean("painted"),
                     supportPainted = o.optBoolean("support_painted"),
+                    seamPainted = o.optBoolean("seam_painted"),
+                    fuzzyPainted = o.optBoolean("fuzzy_painted"),
                 )
             }
         }
@@ -303,6 +307,10 @@ private fun JSONArray.doubles(): List<Double> = (0 until length()).map { getDoub
 object PaintMode {
     const val SUPPORTS = 0
     const val COLORS = 1
+    /** Where seams go (enforce) or must not go (block). */
+    const val SEAM = 2
+    /** Fuzzy skin on the painted walls; the only state is [ENFORCE]. */
+    const val FUZZY_SKIN = 3
 
     const val TOOL_BRUSH = 0
     const val TOOL_FILL = 1

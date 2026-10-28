@@ -39,8 +39,10 @@ struct MeshData {
 
 // What a paint session paints on an object's surface.
 enum PaintMode {
-    PaintSupports = 0, // states: 1 enforce supports, 2 block supports
-    PaintColors   = 1, // states: n paints with extruder (ACE slot) n
+    PaintSupports  = 0, // states: 1 enforce supports, 2 block supports
+    PaintColors    = 1, // states: n paints with extruder (ACE slot) n
+    PaintSeam      = 2, // states: 1 seams go here, 2 seams stay away
+    PaintFuzzySkin = 3, // states: 1 fuzzy skin
 };
 enum PaintTool {
     PaintBrush       = 0, // circle or sphere brush

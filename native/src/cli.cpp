@@ -11,7 +11,7 @@
 // --filament can be repeated, once per extruder (ACE slot). --extruder assigns
 // the 1-based extruder N to the object with the 0-based index OBJECT.
 // --paint OBJECT=MODE:STATE[:OPTION]... paints the object from straight above its center, as a
-// touch would: MODE is supports or colors, STATE the support type or extruder (0 erases), with
+// touch would: MODE is supports, colors, seam or fuzzy, STATE the enforcer/blocker or extruder (0 erases), with
 // an 8 mm brush. Options: fill (smart fill), heightN (a band N mm high), below (paint from
 // under the bed), overhangsN (every overhang tilted less than N degrees, instead of a touch).
 //
@@ -157,7 +157,9 @@ int main(int argc, char** argv)
             if (index < 0 || index >= int(objects.size()))
                 return usage();
             const json& o = objects[index];
-            const int mode  = spec.rfind("colors", 0) == 0 ? andslice::PaintColors : andslice::PaintSupports;
+            const int mode  = spec.rfind("colors", 0) == 0 ? andslice::PaintColors :
+                              spec.rfind("seam", 0) == 0   ? andslice::PaintSeam :
+                              spec.rfind("fuzzy", 0) == 0  ? andslice::PaintFuzzySkin : andslice::PaintSupports;
             const size_t colon = spec.find(':');
             const int state = colon == std::string::npos ? 1 : std::stoi(spec.substr(colon + 1));
             auto number_after = [&spec](const std::string& tag) {

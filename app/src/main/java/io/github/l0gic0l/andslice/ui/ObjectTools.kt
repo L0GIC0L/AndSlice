@@ -236,7 +236,12 @@ fun PaintPanel(vm: SlicerViewModel, modifier: Modifier = Modifier) {
     ToolPanel(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (supports) "Paint supports" else "Paint filaments",
+                when (mode) {
+                    PaintMode.SUPPORTS -> "Paint supports"
+                    PaintMode.COLORS -> "Paint filaments"
+                    PaintMode.SEAM -> "Paint seams"
+                    else -> "Paint fuzzy skin"
+                },
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
@@ -248,6 +253,11 @@ fun PaintPanel(vm: SlicerViewModel, modifier: Modifier = Modifier) {
             if (supports) {
                 StateChip(vm, PaintMode.ENFORCE, "Supports", ENFORCER_COLOR)
                 StateChip(vm, PaintMode.BLOCK, "No supports", BLOCKER_COLOR)
+            } else if (mode == PaintMode.SEAM) {
+                StateChip(vm, PaintMode.ENFORCE, "Seam here", ENFORCER_COLOR)
+                StateChip(vm, PaintMode.BLOCK, "No seam", BLOCKER_COLOR)
+            } else if (mode == PaintMode.FUZZY_SKIN) {
+                StateChip(vm, PaintMode.ENFORCE, "Fuzzy skin", FUZZY_COLOR)
             } else {
                 for (slot in 1..vm.extruderCount) {
                     val color = vm.slotColors.getOrElse(slot - 1) { "#808080" }
@@ -327,7 +337,12 @@ fun PaintPanel(vm: SlicerViewModel, modifier: Modifier = Modifier) {
                         if (vm.brushSphere) " The sphere also paints faces turned away, such as both sides of a thin wall." else ""
                 PaintMode.TOOL_FILL -> "Tap an area to fill it up to edges sharper than the edge angle."
                 else -> "Touch a height to paint a band around the object there, for stripes of color or support."
-            } + if (supports) " Overhangs are faces pointing down at less than the overhang angle from the bed." else "",
+            } + when (mode) {
+                PaintMode.SUPPORTS -> " Overhangs are faces pointing down at less than the overhang angle from the bed."
+                PaintMode.SEAM -> " Seams start and end where you paint them, and avoid the areas you block."
+                PaintMode.FUZZY_SKIN -> " Painted walls get a rough texture, with the thickness and point distance set under Fuzzy skin."
+                else -> ""
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -352,8 +367,10 @@ private fun SliderRow(label: String, value: Float, range: ClosedFloatingPointRan
 // The 3D view's overhang highlight.
 private val OVERHANG_COLOR = Color(0xFFFF9E1A)
 
-// PrusaSlicer's colors for support enforcers and blockers, as the 3D view draws them.
+// PrusaSlicer's colors for enforcers and blockers of supports and seams, as the 3D view draws them.
 private val ENFORCER_COLOR = Color(0xFF408CFF)
+/** As the 3D view draws fuzzy skin painting. */
+private val FUZZY_COLOR = Color(0xFFB86BFF)
 private val BLOCKER_COLOR = Color(0xFFFF4D4D)
 
 @Composable

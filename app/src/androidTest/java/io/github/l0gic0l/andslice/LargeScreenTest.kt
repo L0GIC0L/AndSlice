@@ -89,8 +89,9 @@ class LargeScreenTest {
         assertEquals(x + 1.0, slicer.selectedObject!!.offset[0], 0.01)
         compose.onNodeWithContentDescription("Close").performClick()
 
-        // The Kobra 3 has one filament, so the brush goes straight to supports.
+        // The brush paints supports, seams or fuzzy skin; the Kobra 3 has one filament.
         compose.onNodeWithContentDescription("Paint").performClick()
+        compose.onNodeWithTag("paint-supports").performClick()
         waitForText("Paint supports")
         compose.onNodeWithText("Done").performClick()
         compose.waitUntil(10_000) { slicer.paintMode == null }

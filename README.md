@@ -23,8 +23,8 @@ Android 12+ and light and dark themes.
 - 3D plate view of the 255 × 255 × 260 mm Kobra 3 bed: orbit, pan and zoom; tap to select, drag to move
 - Object tools: lay on face, duplicate, delete, auto-arrange, and a move / rotate / scale panel with step
   buttons (0.1 to 10 mm, 1 to 90°), typed values, sizes in mm or scale per axis
-- **Painting** with PrusaSlicer's own painting engine: paint where supports go or must not go, and on the
-  Kobra 3 Combo paint areas in other filaments. Tools: a circle or sphere brush of 1-30 mm, smart fill that
+- **Painting** with PrusaSlicer's own painting engine: paint where supports go or must not go, where seams
+  go or must not go, walls with fuzzy skin, and on the Kobra 3 Combo areas in other filaments. Tools: a circle or sphere brush of 1-30 mm, smart fill that
   stops at edges sharper than a chosen angle, and height bands (0.1-10 mm) for stripes. For supports:
   paint only overhangs below a chosen angle, show those overhangs, or support or block all of them at once.
   Undo and clear.
@@ -39,7 +39,8 @@ Android 12+ and light and dark themes.
 - **Multi-color with the ACE Pro** (Kobra 3 Combo): a filament and color per ACE slot, objects and parts
   assigned to slots, objects drawn in their filament colors, a movable prime tower, and a filament view in the
   preview
-- Quick settings for supports, infill and brim, plus a full editor for every PrusaSlicer print, filament and
+- Quick settings for supports (on the plate, everywhere or only where painted; grid, snug or organic tree
+  supports), infill and brim, plus a full editor for every PrusaSlicer print, filament and
   printer option. Options sit on PrusaSlicer's own pages and groups (Simple / Advanced / Expert, with
   PrusaSlicer's own tooltips), and search covers all of them.
 - Slicing with progress and cancel, then a layer-by-layer preview with feature, speed, height, width, fan,
@@ -213,7 +214,6 @@ PrusaSlicer's sources are used unmodified apart from five small patches in `patc
   printing still gets PrusaSlicer's standard extruder-clearance check.
 - No STEP import, since OpenCASCADE is not built.
 - One ACE Pro (four slots). Eight colors with two ACE units are not set up.
-- No seam or fuzzy skin painting yet; painted 3MF projects from PrusaSlicer keep theirs.
 - No true non-planar (curved layer) slicing. Z anti-aliasing only bends the top surfaces within a layer, and
   makes exporting the G-code slower.
 - 64-bit devices only.

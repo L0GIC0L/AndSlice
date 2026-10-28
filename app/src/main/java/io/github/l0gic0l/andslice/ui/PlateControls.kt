@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Park
+import androidx.compose.material.icons.filled.Grain
+import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -52,6 +54,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -181,20 +187,65 @@ fun PlateSheet(vm: SlicerViewModel, printers: PrinterViewModel, sheet: String?, 
         sheet == PlateSheets.PRINTER -> PrinterSheet(vm, printers, onDismiss = onDismiss, onAddPrinter = onAddPrinter)
         sheet == PlateSheets.PRINT -> ChoiceSheet("Print profile", presets.prints.map { Choice(it, shortPresetName(it)) }, vm.print,
             onDismiss = onDismiss, onSelect = vm::selectPrint)
-        sheet == PlateSheets.SUPPORTS -> ChoiceSheet("Supports", SUPPORT_CHOICES, supportsChoice(vm), onDismiss = onDismiss) { choice ->
-            vm.setOverride("support_material", if (choice == "off") "0" else "1")
-            if (choice != "off") {
-                // PrusaSlicer's "For support enforcers only": no automatic supports, only the painted ones.
-                vm.setOverride("support_material_auto", if (choice == "painted") "0" else "1")
-                vm.setOverride("support_material_buildplate_only", if (choice == "plate") "1" else "0")
-            }
-        }
+        sheet == PlateSheets.SUPPORTS -> SupportsSheet(vm, onDismiss = onDismiss)
         sheet == PlateSheets.INFILL -> InfillSheet(vm, onDismiss = onDismiss)
         sheet != null && sheet.startsWith("filament:") -> FilamentSheet(vm, sheet.substringAfter(':').toInt(), onDismiss = onDismiss)
     }
 }
 
-fun supportsLabel(vm: SlicerViewModel) = SUPPORT_CHOICES.first { it.value == supportsChoice(vm) }.label
+fun supportsLabel(vm: SlicerViewModel): String {
+    val choice = supportsChoice(vm)
+    val label = SUPPORT_CHOICES.first { it.value == choice }.label
+    val style = SUPPORT_STYLES.firstOrNull { it.value == vm.value("support_material_style") }
+    return if (choice == "off" || style == null || style.value == "grid") label else "$label · ${style.label}"
+}
+
+/** Where supports go, and their style: PrusaSlicer's grid and snug supports, or organic tree supports. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SupportsSheet(vm: SlicerViewModel, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
+            Text("Supports", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            val selected = supportsChoice(vm)
+            SUPPORT_CHOICES.forEach { choice ->
+                ListItem(
+                    headlineContent = { Text(choice.label) },
+                    supportingContent = choice.description?.let { { Text(it) } },
+                    leadingContent = { RadioButton(selected = choice.value == selected, onClick = null) },
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    modifier = Modifier.selectable(selected = choice.value == selected, role = Role.RadioButton) {
+                        vm.setOverride("support_material", if (choice.value == "off") "0" else "1")
+                        if (choice.value != "off") {
+                            // PrusaSlicer's "For support enforcers only": no automatic supports, only the painted ones.
+                            vm.setOverride("support_material_auto", if (choice.value == "painted") "0" else "1")
+                            vm.setOverride("support_material_buildplate_only", if (choice.value == "plate") "1" else "0")
+                        }
+                    },
+                )
+            }
+            if (selected != "off") {
+                val style = vm.value("support_material_style") ?: "grid"
+                Text("Style", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 8.dp))
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                    SUPPORT_STYLES.forEachIndexed { i, s ->
+                        SegmentedButton(
+                            selected = style == s.value,
+                            onClick = { vm.setOverride("support_material_style", s.value) },
+                            shape = SegmentedButtonDefaults.itemShape(i, SUPPORT_STYLES.size),
+                        ) { Text(s.label, maxLines = 1) }
+                    }
+                }
+                Text(
+                    SUPPORT_STYLES.firstOrNull { it.value == style }?.description.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+}
 
 fun hasBrim(vm: SlicerViewModel) = (vm.value("brim_width")?.toDoubleOrNull() ?: 0.0) > 0.0
 
@@ -244,6 +295,13 @@ private val SUPPORT_CHOICES = listOf(
     Choice("plate", "Supports on plate", "Only where supports can stand on the bed"),
     Choice("all", "Supports everywhere", "Also on top of the model"),
     Choice("painted", "Only where painted", "Paint supports on a selected object with the brush"),
+)
+
+/** PrusaSlicer's support_material_style values. */
+private val SUPPORT_STYLES = listOf(
+    Choice("grid", "Grid", "Straight columns on a grid: the sturdiest, for big flat overhangs."),
+    Choice("snug", "Snug", "Follows the outline of the overhang closely, so it uses less material."),
+    Choice("organic", "Organic", "Branches like a tree that touch the model only where needed: least material, easy to remove."),
 )
 
 private fun supportsChoice(vm: SlicerViewModel) = when {
@@ -334,20 +392,31 @@ fun ObjectToolbar(vm: SlicerViewModel, obj: PlateObject, modifier: Modifier = Mo
                     }
                 }
                 Box {
-                    IconButton(onClick = {
-                        // Single-filament printers can only paint supports.
-                        if (vm.multiMaterial) paintMenu = true else vm.startPainting(PaintMode.SUPPORTS)
-                    }) { Icon(Icons.Default.Brush, "Paint") }
+                    IconButton(onClick = { paintMenu = true }) { Icon(Icons.Default.Brush, "Paint") }
                     DropdownMenu(expanded = paintMenu, onDismissRequest = { paintMenu = false }) {
                         DropdownMenuItem(
-                            text = { Text("Paint supports") },
+                            text = { Text("Supports") },
                             leadingIcon = { Icon(Icons.Default.Park, null) },
                             onClick = { paintMenu = false; vm.startPainting(PaintMode.SUPPORTS) },
+                            modifier = Modifier.testTag("paint-supports"),
+                        )
+                        // Single-filament printers print one filament only.
+                        if (vm.multiMaterial) {
+                            DropdownMenuItem(
+                                text = { Text("Filaments") },
+                                leadingIcon = { Icon(Icons.Default.Palette, null) },
+                                onClick = { paintMenu = false; vm.startPainting(PaintMode.COLORS) },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Seams") },
+                            leadingIcon = { Icon(Icons.Default.Straighten, null) },
+                            onClick = { paintMenu = false; vm.startPainting(PaintMode.SEAM) },
                         )
                         DropdownMenuItem(
-                            text = { Text("Paint filaments") },
-                            leadingIcon = { Icon(Icons.Default.Palette, null) },
-                            onClick = { paintMenu = false; vm.startPainting(PaintMode.COLORS) },
+                            text = { Text("Fuzzy skin") },
+                            leadingIcon = { Icon(Icons.Default.Grain, null) },
+                            onClick = { paintMenu = false; vm.startPainting(PaintMode.FUZZY_SKIN) },
                         )
                     }
                 }

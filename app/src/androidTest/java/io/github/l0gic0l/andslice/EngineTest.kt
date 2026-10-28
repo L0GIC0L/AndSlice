@@ -209,6 +209,31 @@ class EngineTest {
     }
 
     @Test
+    fun paintsSeamsAndFuzzySkin() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        val camera = floatArrayOf(cube.offset[0].toFloat(), cube.offset[1].toFloat(), 500f)
+        // A 4 mm band around the top of the cube's walls.
+        val band = PaintBrush(state = PaintMode.ENFORCE, radius = 1f, tool = PaintMode.TOOL_HEIGHT, heightRange = 4f)
+        for (mode in listOf(PaintMode.SEAM, PaintMode.FUZZY_SKIN)) {
+            assertTrue(NativeEngine.paintBegin(cube.id, mode))
+            assertTrue(NativeEngine.paintAt(camera, floatArrayOf(0f, 0f, -1f), band.params(), false))
+            NativeEngine.paintCommit()
+            NativeEngine.paintEnd()
+        }
+        val painted = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertTrue(painted.seamPainted)
+        assertTrue(painted.fuzzyPainted)
+
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament), emptyArray(), emptyArray(), out.path + "/", null)
+        )
+        assertTrue(result.error ?: "", result.ok)
+    }
+
+    @Test
     fun savesAndOpensProjects() {
         val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
         NativeEngine.addModel(stl.path, "cube")

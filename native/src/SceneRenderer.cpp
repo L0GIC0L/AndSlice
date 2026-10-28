@@ -344,8 +344,10 @@ void SceneRenderer::draw_paint(const PlateObject& o, int color_uniform)
             if (m_extruder_colors.empty())
                 continue;
             std::copy_n(m_extruder_colors[(state - 1) % m_extruder_colors.size()].data(), 4, c);
+        } else if (paint.mode == PaintFuzzySkin) {
+            c[0] = 0.72f; c[1] = 0.42f; c[2] = 1.f;
         } else if (state == 1) {
-            // Support enforcers and blockers in PrusaSlicer's blue and red.
+            // Enforcers and blockers (supports, seams) in PrusaSlicer's blue and red.
             c[0] = 0.25f; c[1] = 0.55f; c[2] = 1.f;
         } else {
             c[0] = 1.f; c[1] = 0.3f; c[2] = 0.3f;

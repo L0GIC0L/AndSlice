@@ -847,10 +847,12 @@ std::string Engine::objects_json()
         const BoundingBoxf3 bb = o->instance_bounding_box(0);
         const Vec3d off = inst->get_offset(), rot = inst->get_rotation(), scale = inst->get_scaling_factor();
         json parts = json::array();
-        bool painted = false, support_painted = false;
+        bool painted = false, support_painted = false, seam_painted = false, fuzzy_painted = false;
         for (const ModelVolume* v : o->volumes) {
             painted = painted || v->is_mm_painted();
             support_painted = support_painted || (v->is_model_part() && !v->supported_facets.empty());
+            seam_painted = seam_painted || (v->is_model_part() && !v->seam_facets.empty());
+            fuzzy_painted = fuzzy_painted || v->is_fuzzy_skin_painted();
             if (v->is_model_part())
                 parts.push_back({ {"name", v->name}, {"extruder", std::max(v->extruder_id(), 1)} });
         }
@@ -868,6 +870,8 @@ std::string Engine::objects_json()
             {"parts", parts},
             {"painted", painted},
             {"support_painted", support_painted},
+            {"seam_painted", seam_painted},
+            {"fuzzy_painted", fuzzy_painted},
         });
     }
     return out.dump();
@@ -1021,7 +1025,12 @@ std::shared_ptr<const PaintMesh> make_paint_mesh(int mode, const StateTriangles&
 
 FacetsAnnotation& paint_facets(ModelVolume& volume, int mode)
 {
-    return mode == PaintColors ? volume.mm_segmentation_facets : volume.supported_facets;
+    switch (mode) {
+    case PaintColors:    return volume.mm_segmentation_facets;
+    case PaintSeam:      return volume.seam_facets;
+    case PaintFuzzySkin: return volume.fuzzy_skin_facets;
+    default:             return volume.supported_facets;
+    }
 }
 
 // Calls fn(facet index) for every facet of the volume tilted less than `angle_deg` from the bed and
@@ -1116,7 +1125,7 @@ bool Engine::paint_begin(uint64_t id, int mode)
         return false;
     auto session = std::make_unique<PaintSession>();
     session->object_id = id;
-    session->mode      = mode == PaintColors ? PaintColors : PaintSupports;
+    session->mode      = std::clamp(mode, int(PaintSupports), int(PaintFuzzySkin));
     for (ModelVolume* v : o->volumes) {
         if (!v->is_model_part())
             continue;
@@ -1192,8 +1201,9 @@ bool Engine::paint_at(const float camera[3], const float dir[3], const PaintPara
     const Transform3d       trafo_no_translate = instance_no_offset * volume.get_matrix_no_offset();
     const Vec3f             camera_in_mesh     = (trafo.inverse() * eye).cast<float>();
     const TriangleSelector::ClippingPlane no_clipping;
-    const TriangleStateType new_state = TriangleStateType(std::clamp(params.state, 0, 16));
-    const int               state     = params.state;
+    // Fuzzy skin has a single state.
+    const int               state     = s->mode == PaintFuzzySkin ? std::min(params.state, 1) : params.state;
+    const TriangleStateType new_state = TriangleStateType(std::clamp(state, 0, 16));
     const float             radius    = std::max(params.radius, 0.1f);
     const auto              cursor    = params.sphere ? TriangleSelector::CursorType::SPHERE : TriangleSelector::CursorType::CIRCLE;
     // Overhang-only painting applies to supports; filaments go everywhere.

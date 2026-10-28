@@ -81,7 +81,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -116,7 +118,13 @@ fun PrinterScreen(
     onBack: (() -> Unit)?,
     onAddPrinter: () -> Unit,
     onRemovePrinter: (SavedPrinter) -> Unit,
+    keepScreenOn: Boolean = false,
 ) {
+    val view = LocalView.current
+    DisposableEffect(view, keepScreenOn) {
+        view.keepScreenOn = keepScreenOn
+        onDispose { view.keepScreenOn = false }
+    }
     val active = printer.active ?: return
     var editing by rememberSaveable(active.id) { mutableStateOf(false) }
     var confirmStop by remember { mutableStateOf(false) }

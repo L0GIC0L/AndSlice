@@ -19,12 +19,13 @@ private class FakeMoonraker {
     var state = "printing"
     var klippy = "ready"
     var webcams = "[]"
+    var version = "v0.9.3-1"
 
     fun close() = server.close()
 
     private fun respond(r: FakeHttpServer.Request): Pair<Int, String> = when {
         r.path == "/server/info" ->
-            200 to """{"result":{"klippy_connected":true,"klippy_state":"$klippy","moonraker_version":"v0.9.3-1"}}"""
+            200 to """{"result":{"klippy_connected":true,"klippy_state":"$klippy","moonraker_version":"$version"}}"""
         r.path.startsWith("/printer/objects/query") -> 200 to """{"result":{"eventtime":1.0,"status":{
             "print_stats":{"state":"$state","filename":"benchy.gcode","print_duration":600.0},
             "virtual_sdcard":{"progress":0.4},
@@ -58,6 +59,12 @@ class MoonrakerClientTest {
         assertTrue(host is MoonrakerClient)
         assertEquals("Moonraker v0.9.3-1", host.version().text)
         assertNull(server.requests.first().headers["x-api-key"])
+    }
+
+    @Test
+    fun unknownVersionIsLeftOut() = runBlocking {
+        server.version = "?"
+        assertEquals("Moonraker", PrinterHost.connect(server.url, "").version().text)
     }
 
     @Test

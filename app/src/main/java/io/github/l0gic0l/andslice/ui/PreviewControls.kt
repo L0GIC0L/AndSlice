@@ -227,8 +227,9 @@ private fun LegendRow(color: Color, label: String, trailing: String) {
     }
 }
 
+/** Print time, material and the G-code actions; [inPanel] when it sits at the top of a side panel. */
 @Composable
-fun PreviewBottomBar(vm: SlicerViewModel, printer: PrinterViewModel, onOpenPrinter: () -> Unit) {
+fun PreviewBottomBar(vm: SlicerViewModel, printer: PrinterViewModel, onOpenPrinter: () -> Unit, inPanel: Boolean = false) {
     val result = vm.result ?: return
     val context = LocalContext.current
     val file = result.path?.let { File(it) }
@@ -246,7 +247,10 @@ fun PreviewBottomBar(vm: SlicerViewModel, printer: PrinterViewModel, onOpenPrint
     }
 
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(
+            Modifier.fillMaxWidth().then(if (inPanel) Modifier else Modifier.navigationBarsPadding())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Stat(Icons.Default.Schedule, "Time", result.printTime.ifEmpty { formatDuration(result.printTimeSeconds) })
                 Stat(Icons.Default.Straighten, "Filament", String.format(Locale.US, "%.2f m", result.filamentMm / 1000.0))

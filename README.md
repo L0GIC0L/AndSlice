@@ -37,8 +37,12 @@ Android 12+ and light and dark themes.
   Rinkhals only needs its IP address.
 - **Printer control:** live camera (MJPEG or snapshots), temperatures and preheat, homing, jogging X/Y/Z,
   fan and motors, a G-code console and an emergency stop
-- **Tablets and foldables:** a navigation rail and side panels on wide screens, printer cards in columns,
-  settings as a list beside the options, and a split view when a foldable is half open on a table
+- **Tablets and foldables:** a navigation rail, and the slicing settings in the right half of the plate
+  screen beside the 3D view; printer cards in columns, settings pages as a list beside the options, and a
+  split view when a foldable is half open on a table
+- **Preferences:** light, dark or system theme, wallpaper colors, the side panel (half, narrow or off),
+  3D view anti-aliasing, resolution and bed grid, whether the preview opens after slicing, keeping the
+  screen on while watching the printer, and the settings mode the settings open in
 
 ## Download
 
@@ -125,7 +129,8 @@ Repeat the two native steps with `x86_64` for emulator builds.
   `build/native/host/andslice_cli --bundle app/src/main/assets/profiles/AnycubicKobra3.ini -o out/ model.stl`
 - `./gradlew testDebugUnitTest` runs the JVM tests, including the OctoPrint client against a fake server.
 - `./gradlew connectedDebugAndroidTest` runs the on-device tests: a full Kobra 3 slice through the JNI
-  bridge, and an app launch test. CI runs them on an x86_64 emulator.
+  bridge, an app launch test, and the plate screen laid out as on an unfolded foldable. CI runs them on an
+  x86_64 emulator.
 
 ### Release signing
 

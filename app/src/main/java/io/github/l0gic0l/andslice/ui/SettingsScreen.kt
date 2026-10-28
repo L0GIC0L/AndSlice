@@ -1,9 +1,12 @@
 package io.github.l0gic0l.andslice.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.SaveAs
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -87,13 +90,19 @@ import io.github.l0gic0l.andslice.engine.PresetType
 
 private val MODES = listOf("Simple", "Advanced", "Expert")
 
-/** Every PrusaSlicer option of the selected presets, on PrusaSlicer's own pages and in its option groups. */
+/**
+ * Every PrusaSlicer option of the selected presets, on PrusaSlicer's own pages and in its option groups.
+ * [embedded] leaves out the top bar, for the slicer's side panel; [wide] lists the pages beside the options.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
     vm: SlicerViewModel,
-    wide: Boolean = false,
     onBack: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    wide: Boolean = false,
+    embedded: Boolean = false,
+    defaultMode: Int = 1,
     onPrinterPresetSaved: (String) -> Unit = {},
 ) {
     val defs = vm.optionDefs ?: return
@@ -102,7 +111,7 @@ fun SettingsScreen(
         SettingsLayout.parse(context.assets.open("settings_layout.json").bufferedReader().use { it.readText() })
     }
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var mode by rememberSaveable { mutableIntStateOf(1) }
+    var mode by rememberSaveable { mutableIntStateOf(defaultMode.coerceIn(0, MODES.lastIndex)) }
     var query by rememberSaveable { mutableStateOf("") }
     var selectedPage by rememberSaveable(tab) { mutableStateOf<String?>(null) }
     var help by remember { mutableStateOf<OptionDef?>(null) }
@@ -134,65 +143,70 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     LaunchedEffect(tab, page, searching) { listState.scrollToItem(0) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                },
-                title = {
-                    Column {
-                        Text("Settings")
-                        val preset = when (type) {
-                            PresetType.Print -> vm.print
-                            PresetType.Filament ->
-                                if (vm.multiMaterial) vm.filaments.joinToString(" · ") { shortFilamentName(it) } else vm.filament
-                            PresetType.Printer -> vm.printer
-                        }
-                        Text(preset, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-                actions = {
-                    if (vm.overrides.isNotEmpty()) {
-                        TextButton(onClick = vm::resetAllOverrides) { Text("Reset all") }
-                    }
-                    IconButton(onClick = { saving = true }) { Icon(Icons.Default.SaveAs, "Save as profile") }
-                    if (deletable) IconButton(onClick = { deleting = true }) { Icon(Icons.Default.Delete, "Delete profile") }
-                },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+    val body: @Composable (Modifier) -> Unit = { bodyModifier ->
+        Column(bodyModifier) {
             PrimaryTabRow(selectedTabIndex = tab) {
                 PresetType.entries.forEachIndexed { i, t ->
                     Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t.name) })
                 }
             }
-            TextField(
-                value = query,
-                onValueChange = { query = it },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear search") }
-                },
-                placeholder = { Text("Search all ${type.name.lowercase()} settings") },
-                singleLine = true,
-                shape = CircleShape,
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ),
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp).testTag("settings-search"),
-            )
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = if (embedded) 4.dp else 16.dp, top = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear search") }
+                    },
+                    placeholder = { Text("Search all ${type.name.lowercase()} settings", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    singleLine = true,
+                    shape = CircleShape,
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                    modifier = Modifier.weight(1f).testTag("settings-search"),
+                )
+                // Without a top bar the profile actions go in a menu next to the search.
+                if (embedded) {
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Profile actions") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Reset all changes") },
+                                leadingIcon = { Icon(Icons.Default.RestartAlt, null) },
+                                enabled = vm.overrides.isNotEmpty(),
+                                onClick = { menu = false; vm.resetAllOverrides() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Save as profile") },
+                                leadingIcon = { Icon(Icons.Default.SaveAs, null) },
+                                onClick = { menu = false; saving = true },
+                            )
+                            if (deletable) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete profile") },
+                                    leadingIcon = { Icon(Icons.Default.Delete, null) },
+                                    onClick = { menu = false; deleting = true },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 MODES.forEachIndexed { i, name ->
                     SegmentedButton(
                         selected = mode == i,
                         onClick = { mode = i },
                         shape = SegmentedButtonDefaults.itemShape(i, MODES.size),
-                    ) { Text(name) }
+                    ) { Text(name, maxLines = 1) }
                 }
             }
             if (!searching && !wide) {
@@ -213,44 +227,83 @@ fun SettingsScreen(
                 }
             }
             Row(Modifier.fillMaxSize()) {
-            if (wide) {
-                // Tablets: the pages as a list beside the options.
-                LazyColumn(Modifier.width(280.dp).fillMaxHeight(), contentPadding = PaddingValues(12.dp)) {
-                    items(pages, key = { it }) { p ->
-                        val changed = sections.filter { it.page == p }.sumOf { s -> s.options.count { it.key in vm.overrides } }
-                        NavigationDrawerItem(
-                            label = { Text(p) },
-                            selected = p == page && !searching,
-                            onClick = {
-                                query = ""
-                                selectedPage = p
-                            },
-                            badge = if (changed > 0) ({ Badge { Text("$changed") } }) else null,
-                        )
+                if (wide) {
+                    // Tablets: the pages as a list beside the options.
+                    LazyColumn(Modifier.width(280.dp).fillMaxHeight(), contentPadding = PaddingValues(12.dp)) {
+                        items(pages, key = { it }) { p ->
+                            val changed = sections.filter { it.page == p }.sumOf { s -> s.options.count { it.key in vm.overrides } }
+                            NavigationDrawerItem(
+                                label = { Text(p) },
+                                selected = p == page && !searching,
+                                onClick = {
+                                    query = ""
+                                    selectedPage = p
+                                },
+                                badge = if (changed > 0) ({ Badge { Text("$changed") } }) else null,
+                            )
+                        }
                     }
                 }
-            }
-            LazyColumn(Modifier.weight(1f).fillMaxHeight(), state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
-                if (shown.isEmpty()) {
-                    item(key = "empty") {
-                        Text(
-                            "No settings match \"$query\".",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(24.dp),
-                        )
+                // In the side panel the Slice button floats over the end of the list.
+                LazyColumn(
+                    Modifier.weight(1f).fillMaxHeight(),
+                    state = listState,
+                    contentPadding = PaddingValues(bottom = if (embedded) 96.dp else 32.dp),
+                ) {
+                    if (shown.isEmpty()) {
+                        item(key = "empty") {
+                            Text(
+                                "No settings match \"$query\".",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(24.dp),
+                            )
+                        }
+                    }
+                    shown.forEach { section ->
+                        stickyHeader(key = "header-${section.page}-${section.title}") {
+                            SectionHeader(if (searching) "${section.page} › ${section.title}" else section.title)
+                        }
+                        itemsIndexed(section.options, key = { _, def -> def.key }) { i, def ->
+                            OptionRow(vm, def, groupShape(i, section.options.size), onHelp = { help = def })
+                        }
                     }
                 }
-                shown.forEach { section ->
-                    stickyHeader(key = "header-${section.page}-${section.title}") {
-                        SectionHeader(if (searching) "${section.page} › ${section.title}" else section.title)
-                    }
-                    itemsIndexed(section.options, key = { _, def -> def.key }) { i, def ->
-                        OptionRow(vm, def, groupShape(i, section.options.size), onHelp = { help = def })
-                    }
-                }
-            }
             }
         }
+    }
+
+    if (embedded) {
+        body(modifier)
+    } else {
+        Scaffold(
+            modifier,
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    },
+                    title = {
+                        Column {
+                            Text("Settings")
+                            val preset = when (type) {
+                                PresetType.Print -> vm.print
+                                PresetType.Filament ->
+                                    if (vm.multiMaterial) vm.filaments.joinToString(" · ") { shortFilamentName(it) } else vm.filament
+                                PresetType.Printer -> vm.printer
+                            }
+                            Text(preset, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    actions = {
+                        if (vm.overrides.isNotEmpty()) {
+                            TextButton(onClick = vm::resetAllOverrides) { Text("Reset all") }
+                        }
+                        IconButton(onClick = { saving = true }) { Icon(Icons.Default.SaveAs, "Save as profile") }
+                        if (deletable) IconButton(onClick = { deleting = true }) { Icon(Icons.Default.Delete, "Delete profile") }
+                    },
+                )
+            },
+        ) { padding -> body(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) }
     }
 
     if (saving) {
@@ -318,7 +371,7 @@ private fun SavePresetDialog(type: PresetType, current: String, onDismiss: () ->
 private fun OptionDef.matches(query: String) = fullLabel.contains(query, true) || key.contains(query, true)
 
 @Composable
-private fun SectionHeader(title: String) {
+internal fun SectionHeader(title: String) {
     Text(
         title,
         style = MaterialTheme.typography.titleSmall,
@@ -331,7 +384,7 @@ private fun SectionHeader(title: String) {
 }
 
 /** Rows of one group form a single rounded block, with small gaps between the rows. */
-private fun groupShape(index: Int, count: Int): Shape {
+internal fun groupShape(index: Int, count: Int): Shape {
     val outer = 20.dp
     val inner = 4.dp
     val top = if (index == 0) outer else inner

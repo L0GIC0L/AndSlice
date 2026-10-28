@@ -594,7 +594,8 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ slicing
 
-    fun slice(context: Context) {
+    /** Slices the plate; with [openPreview] the preview opens when it is done. */
+    fun slice(context: Context, openPreview: Boolean = true) {
         if (slicing) return
         slicing = true
         sliceProgress = 0
@@ -624,13 +625,17 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             if (r.ok) {
                 result = r
                 resultStale = false
-                mode = ViewMode.Preview
+                if (openPreview) mode = ViewMode.Preview
                 layerRange = 0..(r.layerZs.size - 1).coerceAtLeast(0)
                 moveFraction = 1f
                 // Multi-color prints open in the filament view, single-color ones keep the chosen view.
                 if (r.extrudersUsed.size > 1 && viewType == 0) viewType = VIEW_TYPE_TOOL
                 syncSlots()
-                if (r.warnings.isNotEmpty()) message = r.warnings.joinToString("\n")
+                if (r.warnings.isNotEmpty()) {
+                    message = r.warnings.joinToString("\n")
+                } else if (mode != ViewMode.Preview) {
+                    message = "Sliced. Open the preview to print or save the G-code."
+                }
             } else if (!r.canceled) {
                 message = r.error ?: "Slicing failed."
             }

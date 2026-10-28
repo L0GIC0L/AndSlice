@@ -39,5 +39,12 @@ class AppLaunchTest {
         waitForText("The plate is empty")
         compose.onNodeWithContentDescription("Printer").performClick()
         waitForText("Connect your printer")
+        compose.onNodeWithContentDescription("Back").performClick()
+
+        // App preferences are in the overflow menu on phones.
+        waitForText("The plate is empty")
+        compose.onNodeWithContentDescription("More options").performClick()
+        compose.onNodeWithText("Preferences").performClick()
+        waitForText("Anti-aliasing")
     }
 }

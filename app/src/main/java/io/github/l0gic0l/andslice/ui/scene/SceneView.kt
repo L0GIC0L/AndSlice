@@ -40,6 +40,8 @@ class SceneView(
     context: Context,
     private val callbacks: SceneCallbacks,
     val camera: OrbitCamera,
+    /** Multisample anti-aliasing samples to ask for; fixed for the life of the view. */
+    samples: Int = 4,
 ) : GLSurfaceView(context) {
 
     @Volatile var mode: Int = 0
@@ -52,7 +54,7 @@ class SceneView(
 
     init {
         setEGLContextClientVersion(3)
-        setEGLConfigChooser(MultisampleConfigChooser())
+        setEGLConfigChooser(MultisampleConfigChooser(samples))
         preserveEGLContextOnPause = true
         setRenderer(object : Renderer {
             override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -82,6 +84,29 @@ class SceneView(
         renderMode = RENDERMODE_WHEN_DIRTY
         camera.update()
         publishCamera()
+    }
+
+    /** Fraction of the view's resolution the scene is drawn at; less is faster on slow GPUs. */
+    var renderScale = 1f
+        set(value) {
+            if (field == value) return
+            field = value
+            applyRenderScale()
+        }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        // After the layout pass, as resizing the surface asks for another one.
+        post { applyRenderScale() }
+    }
+
+    /** A smaller surface than the view, which the compositor scales up. */
+    private fun applyRenderScale() {
+        if (renderScale >= 1f || width <= 0 || height <= 0) {
+            holder.setSizeFromLayout()
+        } else {
+            holder.setFixedSize((width * renderScale).toInt().coerceAtLeast(1), (height * renderScale).toInt().coerceAtLeast(1))
+        }
     }
 
     fun publishCamera() {
@@ -247,8 +272,8 @@ class SceneView(
     }
 }
 
-/** RGBA8888 + depth, with 4x MSAA when the GPU offers it. */
-private class MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
+/** RGBA8888 + depth, with [samples]x MSAA when the GPU offers it. */
+private class MultisampleConfigChooser(private val samples: Int) : GLSurfaceView.EGLConfigChooser {
     override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig {
         val es3Bit = 0x40 // EGL_OPENGL_ES3_BIT_KHR
         fun attribs(samples: Int) = intArrayOf(
@@ -259,7 +284,7 @@ private class MultisampleConfigChooser : GLSurfaceView.EGLConfigChooser {
             EGL10.EGL_SAMPLES, samples,
             EGL10.EGL_NONE,
         )
-        for (samples in intArrayOf(4, 0)) {
+        for (samples in listOf(samples, 0).distinct()) {
             val configs = arrayOfNulls<EGLConfig>(1)
             val count = IntArray(1)
             if (egl.eglChooseConfig(display, attribs(samples), configs, 1, count) && count[0] > 0) {

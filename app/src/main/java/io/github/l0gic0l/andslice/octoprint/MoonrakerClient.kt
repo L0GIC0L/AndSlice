@@ -29,7 +29,8 @@ class MoonrakerClient(baseUrl: String, apiKey: String) : PrinterHost {
 
     override suspend fun version(): OctoPrintVersion = withContext(Dispatchers.IO) {
         val info = result(http.request("GET", "/server/info"))
-        val version = info.optString("moonraker_version")
+        // Rinkhals reports "?" for its Moonraker version.
+        val version = info.optString("moonraker_version").takeUnless { it == "?" }.orEmpty()
         OctoPrintVersion(server = version, api = "moonraker", text = "Moonraker $version".trim())
     }
 

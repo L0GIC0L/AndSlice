@@ -21,12 +21,22 @@ import io.github.l0gic0l.andslice.ui.scene.OrbitCamera
 import io.github.l0gic0l.andslice.ui.scene.SceneCallbacks
 import io.github.l0gic0l.andslice.ui.scene.SceneView
 
-/** The 3D plate / G-code preview, kept in sync with the view model. */
+/**
+ * The 3D plate / G-code preview, kept in sync with the view model. [antialiasing] is fixed
+ * when the view is created, so callers wrap the view in a key of it.
+ */
 @Composable
-fun Viewport(vm: SlicerViewModel, camera: OrbitCamera, modifier: Modifier = Modifier) {
+fun Viewport(
+    vm: SlicerViewModel,
+    camera: OrbitCamera,
+    modifier: Modifier = Modifier,
+    antialiasing: Int = 4,
+    renderScale: Float = 1f,
+    showGrid: Boolean = true,
+) {
     val context = LocalContext.current
     val view = remember {
-        SceneView(context, camera = camera, callbacks = object : SceneCallbacks {
+        SceneView(context, camera = camera, samples = antialiasing, callbacks = object : SceneCallbacks {
             override fun selectedId() = vm.selectedId
             override fun onTap(objectId: Long, origin: FloatArray, dir: FloatArray) = vm.onTap(objectId, origin, dir)
             override fun onDragObject(id: Long, x: Double, y: Double, done: Boolean) = vm.dragObject(id, x, y, done)
@@ -73,7 +83,7 @@ fun Viewport(vm: SlicerViewModel, camera: OrbitCamera, modifier: Modifier = Modi
     // Scene colors come from the Material color scheme, so they follow dynamic color and dark mode.
     val scheme = MaterialTheme.colorScheme
     val palette = listOf(
-        scheme.surfaceContainerLow, scheme.surfaceContainerHighest, scheme.outlineVariant.copy(alpha = 0.8f),
+        scheme.surfaceContainerLow, scheme.surfaceContainerHighest, scheme.outlineVariant.copy(alpha = if (showGrid) 0.8f else 0f),
         scheme.outline.copy(alpha = 0.9f), scheme.secondary, scheme.primary, scheme.error,
     )
     LaunchedEffect(palette) {
@@ -128,6 +138,7 @@ fun Viewport(vm: SlicerViewModel, camera: OrbitCamera, modifier: Modifier = Modi
         }
     }
     LaunchedEffect(vm.renderTick) { view.requestRender() }
+    LaunchedEffect(renderScale) { view.renderScale = renderScale }
 
     AndroidView(factory = { view }, modifier = modifier)
 }

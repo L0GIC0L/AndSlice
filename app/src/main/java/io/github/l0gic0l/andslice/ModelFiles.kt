@@ -82,6 +82,11 @@ object ModelFiles {
         return out
     }
 
+    /** A PrusaSlicer string list option from its values, each quoted with C-style escapes. */
+    fun serializeStrings(values: List<String>): String = values.joinToString(";") { value ->
+        "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\""
+    }
+
     /**
      * The settings of a [project] that differ from the [presets] it is opened with: as overrides,
      * they restore the project's settings. Only keys [editable] in the app count; preset names,

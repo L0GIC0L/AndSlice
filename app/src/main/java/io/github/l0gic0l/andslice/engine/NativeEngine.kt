@@ -65,6 +65,13 @@ object NativeEngine {
     /** Wipe tower {x, y}; arranging may move it. */
     external fun wipeTowerPosition(): FloatArray
 
+    // Calibration
+    /**
+     * Replaces the plate with a calibration object ("temperature_tower", "square_tower" or
+     * "hollow_cube"), with [gcodes] run from [heights] on; {"ids"}.
+     */
+    external fun addCalibration(shape: String, sections: Int, sectionHeight: Double, heights: DoubleArray, gcodes: Array<String>): String
+
     // Undo
     /** Remembers the plate before a change, for [undo]; forgets what was undone. */
     external fun pushUndo()

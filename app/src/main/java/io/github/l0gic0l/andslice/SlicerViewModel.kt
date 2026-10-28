@@ -473,13 +473,13 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ plate
 
-    /** Counts imports, so the app can show the plate they land on. */
-    var importRequests by mutableIntStateOf(0); private set
+    /** Counts imports and test prints, so the app can show the plate they land on. */
+    var plateRequests by mutableIntStateOf(0); private set
 
     /** Models, zip archives of models and projects opened with, shared to or imported into the app. */
     fun importModels(context: Context, uris: List<Uri>) {
         if (uris.isEmpty()) return
-        importRequests++
+        plateRequests++
         launchEngine("Loading model…") {
             addFiles(uris.map { copyToCache(context, it) })
         }
@@ -487,7 +487,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Adds files on this device: a project on an empty plate opens with its settings, archives are unpacked. */
     fun importFiles(files: List<File>) {
-        importRequests++
+        plateRequests++
         launchEngine("Loading model…") { addFiles(files) }
     }
 
@@ -1106,6 +1106,92 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             mode = ViewMode.Plate
         }
         refreshObjects()
+    }
+
+    // ------------------------------------------------------------------ calibration
+
+    private fun layerHeights(): Pair<Double, Double> {
+        val layer = value("layer_height")?.toDoubleOrNull() ?: 0.2
+        return Calibration.firstLayerHeight(value("first_layer_height"), layer) to layer
+    }
+
+    /** How the printer's firmware sets pressure advance, or null when it has none. */
+    val pressureAdvanceCommand: String?
+        get() = Calibration.pressureAdvanceCommand(value("start_gcode").orEmpty(), value("gcode_flavor").orEmpty())
+
+    /** Places a calibration object on the plate in place of what is there, which undo brings back. */
+    private fun placeCalibration(
+        shape: String, sections: Int, sectionHeight: Double, commands: List<Pair<Double, String>>, options: Map<String, String> = emptyMap(),
+    ) {
+        stopPainting()
+        plateRequests++
+        plateChange("Preparing the test print…") {
+            val ids = JSONObject(
+                NativeEngine.addCalibration(
+                    shape, sections, sectionHeight, commands.map { it.first }.toDoubleArray(), commands.map { it.second }.toTypedArray(),
+                ),
+            ).getJSONArray("ids")
+            val id = ids.getLong(0)
+            // Test prints that are judged by their walls print with walls only.
+            for ((key, value) in options) NativeEngine.setObjectOption(id, -1.0, key, value)
+            NativeEngine.clearPreview()
+            withContext(Dispatchers.Main) {
+                result = null
+                mode = ViewMode.Plate
+            }
+            refreshObjects()
+            selectOnEngine(id)
+        }
+    }
+
+    fun placeTemperatureTower(start: Int, step: Int, sections: Int) {
+        val (first, layer) = layerHeights()
+        val commands = Calibration.temperatureCommands(Calibration.temperatures(start, step, sections), first, layer)
+        placeCalibration("temperature_tower", sections, Calibration.SECTION_HEIGHT, commands)
+    }
+
+    fun placePressureAdvanceTower(start: Double, perMm: Double, height: Int) {
+        val template = pressureAdvanceCommand ?: return
+        val commands = Calibration.pressureAdvanceCommands(template, start, perMm, height, layerHeights().first)
+        placeCalibration(
+            "square_tower", height, 1.0, commands,
+            mapOf("perimeters" to "2", "fill_density" to "0%", "top_solid_layers" to "0", "bottom_solid_layers" to "1"),
+        )
+    }
+
+    /** Width of the flow cube's walls: 1.125 times the nozzle, a common default. */
+    val flowWallWidth: Double get() = (value("nozzle_diameter")?.split(',')?.firstOrNull()?.toDoubleOrNull() ?: 0.4) * 1.125
+
+    fun placeFlowCube() {
+        val width = Calibration.format(flowWallWidth, 3)
+        placeCalibration(
+            "hollow_cube", 1, Calibration.CUBE_HEIGHT, emptyList(),
+            mapOf(
+                "perimeters" to "2", "fill_density" to "0%", "top_solid_layers" to "0", "bottom_solid_layers" to "1",
+                "perimeter_extrusion_width" to width, "external_perimeter_extrusion_width" to width,
+            ),
+        )
+    }
+
+    /** Uses a calibrated value for every filament slot, until it is saved in a filament profile. */
+    fun useTemperature(celsius: Int) {
+        setOverride("temperature", Calibration.allSlots(celsius.toString(), extruderCount))
+        message = "Printing at $celsius °C. Save it in a filament profile to keep it."
+    }
+
+    fun useFlow(multiplier: Double) {
+        setOverride("extrusion_multiplier", Calibration.allSlots(Calibration.format(multiplier, 3), extruderCount))
+        message = "Extrusion multiplier set to ${Calibration.format(multiplier, 3)}. Save it in a filament profile to keep it."
+    }
+
+    fun usePressureAdvance(advance: Double) {
+        val template = pressureAdvanceCommand ?: return
+        val command = template.replace("{value}", Calibration.format(advance, 4))
+        // In the filament's start G-code, which runs after the printer's.
+        val current = ModelFiles.parseStrings(value("start_filament_gcode").orEmpty())
+        val updated = List(extruderCount) { i -> Calibration.withPressureAdvance(current.getOrElse(i) { current.lastOrNull().orEmpty() }, command) }
+        setOverride("start_filament_gcode", ModelFiles.serializeStrings(updated))
+        message = "Pressure advance set to ${Calibration.format(advance, 4)}. Save it in a filament profile to keep it."
     }
 
     // ------------------------------------------------------------------ undo

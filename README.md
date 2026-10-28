@@ -23,6 +23,10 @@ Android 12+ and light and dark themes.
 - 3D plate view of the 255 × 255 × 260 mm Kobra 3 bed: orbit, pan and zoom; tap to select, drag to move
 - Object tools: lay on face, duplicate, delete, auto-arrange, and a move / rotate / scale panel with step
   buttons (0.1 to 10 mm, 1 to 90°), typed values, sizes in mm or scale per axis
+- **Calibration** (plate menu → Calibrate): a temperature tower, a flow cube to measure with calipers and a
+  pressure advance tower (with `M900 K` on the Kobra 3, `SET_PRESSURE_ADVANCE` on other Klipper printers).
+  The result becomes the filament's temperature, extrusion multiplier or pressure advance, and can be saved
+  in a filament profile of your own.
 - **Undo and redo** for the plate: moves, deletes, imports, cuts, settings per object and whole painting
   sessions, 30 steps back
 - Mirror along X, Y or Z; split an object into separate objects, or into parts that get their own filament
@@ -174,7 +178,8 @@ Repeat the two native steps with `x86_64` for emulator builds.
   option with `--set`, such as `--set zaa_enabled=1`, and saves and opens projects
   (`--save-project plate.3mf`, `--project plate.3mf`). `--adaptive 0=0.5`, `--object-set 0:perimeters=4` and
   `--range 0:10-20:layer_height=0.1` set variable layer height, object settings and height ranges;
-  `--mirror 0=x`, `--split 0=objects` and `--cut 0=12` mirror, split and cut.
+  `--mirror 0=x`, `--split 0=objects` and `--cut 0=12` mirror, split and cut;
+  `--calibration temperature_tower:6:8:0.4=M104 S220:8.2=M104 S215` places a test print with G-code at heights.
 
 ### Release signing
 

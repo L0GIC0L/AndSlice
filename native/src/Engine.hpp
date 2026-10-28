@@ -187,6 +187,16 @@ public:
     // Returns the id of the closest object hit by the world-space ray, or -1.
     int64_t     pick(const float origin[3], const float dir[3]);
 
+    // ---------------------------------------------------------------- calibration
+    // Replaces the plate with a generated test object, plus G-code to run from given heights on
+    // (PrusaSlicer's custom G-code per print height). Shapes:
+    //  "temperature_tower": `sections` blocks of `section_height` mm, each with a 45° overhang and a notch on top;
+    //  "square_tower": a 30 mm square tower, `sections` × `section_height` mm high;
+    //  "hollow_cube": a 20 mm cube, `section_height` mm high, to print with walls only.
+    // Returns {"ids": [id]}.
+    std::string add_calibration(const std::string& shape, int sections, double section_height,
+                                const std::vector<std::pair<double, std::string>>& commands);
+
     // ---------------------------------------------------------------- per-object settings
     // Variable layer height with PrusaSlicer's adaptive algorithm: thin layers on slopes and curves, thick ones
     // on walls, smoothed. `quality` is PrusaSlicer's quality/speed factor: 0 gives the thinnest layers, 1 the

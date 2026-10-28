@@ -24,6 +24,7 @@
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/AABBMesh.hpp"
 #include "libslic3r/BuildVolume.hpp"
+#include "libslic3r/CustomGCode.hpp"
 #include "libslic3r/CutUtils.hpp"
 #include "libslic3r/FileReader.hpp"
 #include "libslic3r/Format/3mf.hpp"
@@ -642,6 +643,8 @@ void Engine::remove_object(uint64_t id)
                                       [id](const auto& m) { return m.first == id; }),
                        m_meshes.end());
         m_layer_quality.erase(id);
+        if (m_model->objects.empty())
+            m_model->custom_gcode_per_print_z().gcodes.clear();
         if (m_selected == int64_t(id))
             m_selected = -1;
         touch_plate();
@@ -654,6 +657,8 @@ void Engine::clear_plate()
     m_paint.reset();
     m_paint_cache.clear();
     m_model->clear_objects();
+    // G-code at heights belongs to what was on the plate, such as a calibration tower.
+    m_model->custom_gcode_per_print_z().gcodes.clear();
     m_meshes.clear();
     m_layer_quality.clear();
     m_selected = -1;
@@ -1072,6 +1077,83 @@ std::vector<PlateObject> Engine::plate_snapshot()
         out.push_back(std::move(po));
     }
     return out;
+}
+
+// ------------------------------------------------------------------- calibration
+
+namespace {
+
+// A 45° overhang: a wall `height` high at x = 0 that leans out to x = height at the top, `depth` deep.
+indexed_triangle_set its_make_overhang(float height, float depth)
+{
+    const float h = height, d = depth;
+    return {
+        { {0, 2, 1}, {3, 4, 5}, {0, 1, 4}, {0, 4, 3}, {1, 2, 5}, {1, 5, 4}, {0, 5, 2}, {0, 3, 5} },
+        { {0, 0, 0}, {0, 0, h}, {h, 0, h}, {0, d, 0}, {0, d, h}, {h, d, h} },
+    };
+}
+
+indexed_triangle_set its_moved(indexed_triangle_set its, float x, float y, float z)
+{
+    for (stl_vertex& v : its.vertices)
+        v += stl_vertex(x, y, z);
+    return its;
+}
+
+} // namespace
+
+std::string Engine::add_calibration(const std::string& shape, int sections, double section_height,
+                                    const std::vector<std::pair<double, std::string>>& commands)
+{
+    sections = std::clamp(sections, 1, 40);
+    const float h = float(std::clamp(section_height, 1., 50.));
+    std::vector<indexed_triangle_set> parts;
+    std::string name;
+    if (shape == "temperature_tower") {
+        name = "Temperature tower";
+        for (int s = 0; s < sections; ++s) {
+            const float z = float(s) * h;
+            parts.push_back(its_moved(its_make_cube(20., 12., h - 1.), 0.f, 0.f, z));
+            // A narrower 1 mm band between the sections, to tell them apart.
+            parts.push_back(its_moved(its_make_cube(16., 8., 1.), 2.f, 2.f, z + h - 1.f));
+            parts.push_back(its_moved(its_make_overhang(h - 1.f, 12.f), 20.f, 0.f, z));
+        }
+    } else if (shape == "square_tower") {
+        name = "Pressure advance tower";
+        parts.push_back(its_make_cube(30., 30., double(h) * sections));
+    } else if (shape == "hollow_cube") {
+        name = "Flow cube";
+        parts.push_back(its_make_cube(20., 20., h));
+    } else {
+        throw RuntimeError("Unknown calibration shape: " + shape);
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_paint.reset();
+    m_paint_cache.clear();
+    m_model->clear_objects();
+    m_meshes.clear();
+    m_layer_quality.clear();
+    m_selected = -1;
+    ModelObject* o = m_model->add_object();
+    o->name = name;
+    for (indexed_triangle_set& its : parts) {
+        ModelVolume* v = o->add_volume(TriangleMesh(std::move(its)));
+        v->name = name;
+    }
+    o->add_instance();
+    place_new_objects(0);
+
+    // The commands run at the first layer at or above each height.
+    CustomGCode::Info& info = m_model->custom_gcode_per_print_z();
+    const size_t extruders = m_bundle->printers.get_edited_preset().config.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
+    info.mode = extruders > 1 ? CustomGCode::MultiAsSingle : CustomGCode::SingleExtruder;
+    info.gcodes.clear();
+    for (const auto& [z, gcode] : commands)
+        info.gcodes.push_back({ z, CustomGCode::Custom, 1, std::string(), gcode });
+    std::sort(info.gcodes.begin(), info.gcodes.end());
+    touch_plate();
+    return json{ {"ids", json::array({ o->id().id })} }.dump();
 }
 
 // ------------------------------------------------------------------- undo

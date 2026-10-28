@@ -17,6 +17,8 @@
 //
 // --mirror OBJECT=AXIS mirrors along x, y or z; --split OBJECT=objects|parts splits where the mesh is
 // not connected; --cut OBJECT=HEIGHT cuts across at HEIGHT mm, turning the upper part onto its cut face.
+// --calibration SHAPE:SECTIONS:HEIGHT[:Z=GCODE]... puts a calibration object on the plate, with G-code
+// at heights, e.g. temperature_tower:4:8:8.2=M104 S215:16.2=M104 S210.
 // --undo-check deletes the first object, undoes and redoes that, and paints and undoes the painting,
 // printing the plate after each step; the slice then has the first object back.
 // --adaptive OBJECT=Q gives the object variable layer heights at PrusaSlicer's quality/speed factor Q (0..1).
@@ -31,6 +33,7 @@
 #include <string>
 #include <vector>
 
+#include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <nlohmann/json.hpp>
 
@@ -50,7 +53,7 @@ int main(int argc, char** argv)
 {
     std::string bundle, printer, print, output;
     std::vector<std::string> vendors;
-    std::string save, project, save_project;
+    std::string save, project, save_project, calibration;
     std::vector<std::string> filaments;
     std::vector<std::pair<std::string, std::string>> overrides;
     std::vector<std::pair<int, int>> extruders;
@@ -106,6 +109,7 @@ int main(int argc, char** argv)
         else if (a == "-o")         output = next();
         else if (a == "--list")     list = true;
         else if (a == "--undo-check") undo_check = true;
+        else if (a == "--calibration") calibration = next();
         else if (a == "--set") {
             const std::string kv = next();
             const size_t eq = kv.find('=');
@@ -117,7 +121,7 @@ int main(int argc, char** argv)
         else
             models.push_back(a);
     }
-    if (bundle.empty() || (!list && save.empty() && save_project.empty() && (output.empty() || (models.empty() && project.empty()))))
+    if (bundle.empty() || (!list && save.empty() && save_project.empty() && (output.empty() || (models.empty() && project.empty() && calibration.empty()))))
         return usage();
 
     try {
@@ -175,6 +179,17 @@ int main(int argc, char** argv)
                     if (config.contains(key))
                         std::cout << ", " << key << "=" << config[key].get<std::string>();
             std::cout << "\n";
+        }
+        if (!calibration.empty()) {
+            // SHAPE:SECTIONS:HEIGHT[:Z=GCODE]...
+            std::vector<std::string> fields;
+            boost::split(fields, calibration, boost::is_any_of(":"));
+            std::vector<std::pair<double, std::string>> commands;
+            for (size_t i = 3; i < fields.size(); ++i) {
+                const size_t eq = fields[i].find('=');
+                commands.emplace_back(std::stod(fields[i].substr(0, eq)), fields[i].substr(eq + 1));
+            }
+            std::cout << "calibration: " << engine.add_calibration(fields.at(0), std::stoi(fields.at(1)), std::stod(fields.at(2)), commands) << "\n";
         }
         for (const std::string& m : models)
             std::cout << "loaded " << m << ": " << engine.add_model(m, "") << "\n";

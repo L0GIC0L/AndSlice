@@ -240,6 +240,38 @@ class EngineTest {
     }
 
     @Test
+    fun printsCalibrationTowers() {
+        // Temperatures no filament profile uses, so the tower's commands stand out.
+        val temps = Calibration.temperatures(233, 3, 3)
+        val commands = Calibration.temperatureCommands(temps, firstLayer = 0.2, layer = 0.2)
+        val id = org.json.JSONObject(
+            NativeEngine.addCalibration(
+                "temperature_tower", 3, Calibration.SECTION_HEIGHT,
+                commands.map { it.first }.toDoubleArray(), commands.map { it.second }.toTypedArray(),
+            ),
+        ).getJSONArray("ids").getLong(0)
+        val tower = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertEquals(id, tower.id)
+        assertEquals(24.0, tower.size[2], 1e-3)
+
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament), emptyArray(), emptyArray(), out.path + "/", null)
+        )
+        assertTrue(result.error ?: "", result.ok)
+        val gcode = File(result.path!!).readLines()
+        for (t in temps) assertTrue("M104 S$t", gcode.contains("M104 S$t"))
+
+        // Clearing the plate drops the tower's G-code too.
+        NativeEngine.clearPlate()
+        NativeEngine.addModel(File(dir, "cube.stl").apply { writeText(cubeStl(10.0)) }.path, "cube")
+        val plain = SliceResult.parse(
+            NativeEngine.slice(presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament), emptyArray(), emptyArray(), out.path + "/", null)
+        )
+        assertTrue(!File(plain.path!!).readLines().contains("M104 S230"))
+    }
+
+    @Test
     fun undoesAndRedoesPlateChanges() {
         val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
         NativeEngine.addModel(stl.path, "cube")

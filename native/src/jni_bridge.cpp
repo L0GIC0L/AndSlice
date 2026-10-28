@@ -300,6 +300,24 @@ JNIEXPORT jfloatArray JNICALL FN(wipeTowerPosition)(JNIEnv* env, jobject)
     }, (jfloatArray) nullptr);
 }
 
+// ------------------------------------------------------------------- calibration
+
+// heights[i] is where gcodes[i] runs.
+JNIEXPORT jstring JNICALL FN(addCalibration)(JNIEnv* env, jobject, jstring shape, jint sections, jdouble section_height,
+                                            jdoubleArray heights, jobjectArray gcodes)
+{
+    return guarded(env, [&] {
+        const std::vector<std::string> codes = to_strings(env, gcodes);
+        std::vector<double> z(size_t(env->GetArrayLength(heights)));
+        if (!z.empty())
+            env->GetDoubleArrayRegion(heights, 0, jsize(z.size()), z.data());
+        std::vector<std::pair<double, std::string>> commands;
+        for (size_t i = 0; i < std::min(z.size(), codes.size()); ++i)
+            commands.emplace_back(z[i], codes[i]);
+        return to_jstring(env, Engine::get().add_calibration(to_string(env, shape), sections, section_height, commands));
+    }, (jstring) nullptr);
+}
+
 // ------------------------------------------------------------------- undo
 
 JNIEXPORT void JNICALL FN(pushUndo)(JNIEnv* env, jobject)

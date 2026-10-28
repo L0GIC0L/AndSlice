@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.Tune
@@ -98,7 +99,7 @@ import io.github.l0gic0l.andslice.engine.PresetType
 import io.github.l0gic0l.andslice.printers.SavedPrinter
 import io.github.l0gic0l.andslice.ui.scene.OrbitCamera
 
-private enum class Screen { Slicer, Settings, Printer, AddPrinter, Preferences, Browser, PrinterWeb }
+private enum class Screen { Slicer, Settings, Printer, AddPrinter, Preferences, Browser, PrinterWeb, Calibration }
 
 /** Top-level destinations: a navigation bar on phones, a rail on tablets and foldables. */
 private enum class Destination(val label: String, val icon: ImageVector) {
@@ -129,6 +130,7 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
     val camera = remember { OrbitCamera() }
     // The model browser opens again on the page it was left on.
     val browser = remember { BrowserMemory() }
+    val calibration = remember { CalibrationForm() }
 
     // Messages from both view models end up in the same snackbar.
     LaunchedEffect(vm.message) {
@@ -142,10 +144,10 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
         printer.message = null
     }
     // Files opened from elsewhere land on the plate, wherever the app was.
-    var seenImports by rememberSaveable { mutableIntStateOf(vm.importRequests) }
-    LaunchedEffect(vm.importRequests) {
-        if (vm.importRequests != seenImports) {
-            seenImports = vm.importRequests
+    var seenPlateRequests by rememberSaveable { mutableIntStateOf(vm.plateRequests) }
+    LaunchedEffect(vm.plateRequests) {
+        if (vm.plateRequests != seenPlateRequests) {
+            seenPlateRequests = vm.plateRequests
             screen = Screen.Slicer
             vm.showPlate()
         }
@@ -213,6 +215,10 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
         screen == Screen.AddPrinter -> AddPrinterScreen(vm, printer, onClose = { screen = Screen.Printer })
         // Web pages get the whole window.
         screen == Screen.Browser -> ModelBrowserScreen(vm, browser, onClose = { screen = Screen.Slicer })
+        screen == Screen.Calibration -> {
+            BackHandler { screen = Screen.Slicer }
+            CalibrationScreen(vm, calibration, snackbar, onBack = { screen = Screen.Slicer })
+        }
         screen == Screen.PrinterWeb -> {
             LaunchedEffect(printer.activeId) { printer.findWebInterface() }
             PrinterWebScreen(printer.webUrl, printer.webError, onClose = { screen = Screen.Printer })
@@ -267,6 +273,7 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
                                 onOpenPrinter = { navigate(Destination.Printer) },
                                 onAddPrinter = { screen = Screen.AddPrinter },
                                 onFindModels = { screen = Screen.Browser },
+                                onCalibrate = { screen = Screen.Calibration },
                             )
                         }
                     }
@@ -332,6 +339,7 @@ private fun SlicerScreen(
     onOpenPrinter: () -> Unit,
     onAddPrinter: () -> Unit,
     onFindModels: () -> Unit,
+    onCalibrate: () -> Unit,
 ) {
     val context = LocalContext.current
     var showAbout by remember { mutableStateOf(false) }
@@ -393,6 +401,11 @@ private fun SlicerScreen(
                                     leadingIcon = { Icon(Icons.Default.Save, null) },
                                     enabled = vm.objects.isNotEmpty(),
                                     onClick = { menu = false; saveProject.launch(vm.projectName) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Calibrate…") },
+                                    leadingIcon = { Icon(Icons.Default.Science, null) },
+                                    onClick = { menu = false; onCalibrate() },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Arrange") },

@@ -255,6 +255,26 @@ JNIEXPORT jstring JNICALL FN(splitObject)(JNIEnv* env, jobject, jlong id, jboole
     return guarded(env, [&] { return to_jstring(env, Engine::get().split_object(uint64_t(id), into_parts)); }, (jstring) nullptr);
 }
 
+JNIEXPORT jstring JNICALL FN(checkPlate)(JNIEnv* env, jobject, jfloat overhang_angle, jboolean supports, jboolean auto_supports)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().check_plate(overhang_angle, supports, auto_supports)); }, (jstring) nullptr);
+}
+
+JNIEXPORT jstring JNICALL FN(repairObject)(JNIEnv* env, jobject, jlong id)
+{
+    return guarded(env, [&] { return to_jstring(env, Engine::get().repair_object(uint64_t(id))); }, (jstring) nullptr);
+}
+
+JNIEXPORT void JNICALL FN(optimizeOrientation)(JNIEnv* env, jobject, jlong id)
+{
+    guarded_void(env, [&] { Engine::get().optimize_orientation(uint64_t(id)); });
+}
+
+JNIEXPORT void JNICALL FN(scaleToFit)(JNIEnv* env, jobject, jlong id)
+{
+    guarded_void(env, [&] { Engine::get().scale_to_fit(uint64_t(id)); });
+}
+
 JNIEXPORT jstring JNICALL FN(cutObject)(JNIEnv* env, jobject, jlong id, jdouble height, jboolean keep_upper, jboolean keep_lower,
                                        jboolean upper_on_cut)
 {

@@ -408,6 +408,40 @@ class EngineTest {
         assertTrue(contoured.containsMatchIn(File(result.path!!).readText()))
     }
 
+    @Test
+    fun checksAndFixesPrintability() {
+        fun check(id: Long) = ObjectCheck.parseList(NativeEngine.checkPlate(40f, false, true)).single { it.id == id }
+
+        // A T: its arms overhang on both sides of the post.
+        val tee = File(dir, "tee.stl").apply {
+            writeText("solid tee\n" + boxFacets(0.0, 0.0, 0.0, 10.0, 10.0, 20.0) + boxFacets(-15.0, 0.0, 20.0, 25.0, 10.0, 25.0) + "endsolid tee\n")
+        }
+        val teeId = org.json.JSONObject(NativeEngine.addModel(tee.path, "tee")).getJSONArray("ids").getLong(0)
+        assertTrue(check(teeId).unsupportedMm2 >= Printability.LARGE_OVERHANG_MM2)
+        // With supports everywhere nothing is left unsupported.
+        assertEquals(0.0, ObjectCheck.parseList(NativeEngine.checkPlate(40f, true, true)).single().unsupportedMm2, 1e-9)
+        // Laid on its side, nothing overhangs.
+        NativeEngine.optimizeOrientation(teeId)
+        assertEquals(0.0, check(teeId).unsupportedMm2, 1e-6)
+        NativeEngine.clearPlate()
+
+        // A cube without its last two facets: a hole of four open edges.
+        val holey = File(dir, "holey.stl").apply { writeText("solid holey\n" + boxFacets(0.0, 0.0, 0.0, 20.0, 20.0, 20.0, skip = 2) + "endsolid holey\n") }
+        val holeyId = org.json.JSONObject(NativeEngine.addModel(holey.path, "holey")).getJSONArray("ids").getLong(0)
+        assertEquals(4, check(holeyId).openEdges)
+        val repair = org.json.JSONObject(NativeEngine.repairObject(holeyId))
+        assertEquals(1, repair.getInt("holes_filled"))
+        assertEquals(0, check(holeyId).openEdges)
+        NativeEngine.clearPlate()
+
+        // A 400 mm bar does not fit the 255 mm bed until it is scaled down.
+        val bar = File(dir, "bar.stl").apply { writeText("solid bar\n" + boxFacets(0.0, 0.0, 0.0, 400.0, 20.0, 10.0) + "endsolid bar\n") }
+        val barId = org.json.JSONObject(NativeEngine.addModel(bar.path, "bar")).getJSONArray("ids").getLong(0)
+        assertTrue(check(barId).tooBig)
+        NativeEngine.scaleToFit(barId)
+        assertTrue(!check(barId).tooBig && !check(barId).outside)
+    }
+
     /** A 30 mm wide, 12 mm high pyramid: every layer has sloped edges. */
     private fun pyramidStl(): String {
         val tri = listOf(
@@ -430,6 +464,26 @@ class EngineTest {
     }
 
     private fun cubeStl(size: Double): String = "solid cube\n" + cubeFacets(size) + "endsolid cube\n"
+
+    /** The facets of a box from (x0, y0, z0) to (x1, y1, z1), without the last [skip] of them. */
+    private fun boxFacets(x0: Double, y0: Double, z0: Double, x1: Double, y1: Double, z1: Double, skip: Int = 0): String {
+        val v = arrayOf(
+            doubleArrayOf(x0, y0, z0), doubleArrayOf(x1, y0, z0), doubleArrayOf(x1, y1, z0), doubleArrayOf(x0, y1, z0),
+            doubleArrayOf(x0, y0, z1), doubleArrayOf(x1, y0, z1), doubleArrayOf(x1, y1, z1), doubleArrayOf(x0, y1, z1),
+        )
+        val faces = listOf(
+            intArrayOf(0, 2, 1), intArrayOf(0, 3, 2), intArrayOf(4, 5, 6), intArrayOf(4, 6, 7),
+            intArrayOf(0, 1, 5), intArrayOf(0, 5, 4), intArrayOf(1, 2, 6), intArrayOf(1, 6, 5),
+            intArrayOf(2, 3, 7), intArrayOf(2, 7, 6), intArrayOf(3, 0, 4), intArrayOf(3, 4, 7),
+        ).dropLast(skip)
+        return buildString {
+            for (f in faces) {
+                append("facet normal 0 0 0\nouter loop\n")
+                for (i in f) append("vertex ${v[i][0]} ${v[i][1]} ${v[i][2]}\n")
+                append("endloop\nendfacet\n")
+            }
+        }
+    }
 
     /** The facets of a cube of [size] mm, moved [dx] mm along X. */
     private fun cubeFacets(size: Double, dx: Double = 0.0): String {

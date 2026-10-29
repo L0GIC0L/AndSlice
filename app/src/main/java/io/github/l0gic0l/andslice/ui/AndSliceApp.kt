@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.Tune
@@ -343,6 +344,7 @@ private fun SlicerScreen(
 ) {
     val context = LocalContext.current
     var showAbout by remember { mutableStateOf(false) }
+    var showCheck by remember { mutableStateOf(false) }
     val openModels = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.importModels(context, uris)
     }
@@ -401,6 +403,12 @@ private fun SlicerScreen(
                                     leadingIcon = { Icon(Icons.Default.Save, null) },
                                     enabled = vm.objects.isNotEmpty(),
                                     onClick = { menu = false; saveProject.launch(vm.projectName) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Check print") },
+                                    leadingIcon = { Icon(Icons.Default.TaskAlt, null) },
+                                    enabled = vm.objects.isNotEmpty(),
+                                    onClick = { menu = false; showCheck = true },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Calibrate…") },
@@ -470,6 +478,9 @@ private fun SlicerScreen(
                     if (vm.objects.isEmpty() && vm.busyMessage == null) {
                         EmptyPlate(Modifier.align(Alignment.Center), onImport = { openModels.launch(arrayOf("*/*")) }, onFind = onFindModels)
                     }
+                    if (vm.paintMode == null && !vm.transformOpen && !vm.objectSettingsOpen && !vm.cutOpen) {
+                        PrintIssuesChip(vm, onOpen = { showCheck = true }, Modifier.align(Alignment.BottomStart).padding(12.dp))
+                    }
                     vm.selectedObject?.let { obj ->
                         val panel = Modifier.align(Alignment.BottomCenter).padding(12.dp).widthIn(max = 560.dp).fillMaxWidth()
                             .heightIn(max = toolMaxHeight)
@@ -513,6 +524,7 @@ private fun SlicerScreen(
 
     if (vm.slicing) SlicingDialog(vm)
     if (showAbout) AboutDialog(onDismiss = { showAbout = false })
+    if (showCheck) PrintCheckSheet(vm, onDismiss = { showCheck = false })
 }
 
 @Composable

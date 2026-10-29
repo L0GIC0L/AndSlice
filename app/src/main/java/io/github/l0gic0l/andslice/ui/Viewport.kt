@@ -141,11 +141,6 @@ fun Viewport(
     }
     LaunchedEffect(vm.renderTick) { view.requestRender() }
     LaunchedEffect(renderScale) { view.renderScale = renderScale }
-    // Painting may need a look at the underside of the object.
-    LaunchedEffect(vm.paintMode != null) {
-        camera.minPitchDeg = if (vm.paintMode != null) -85f else -5f
-        view.publishCamera()
-    }
 
     AndroidView(factory = { view }, modifier = modifier)
 }

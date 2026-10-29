@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -214,7 +215,7 @@ fun supportsLabel(vm: SlicerViewModel): String {
 @Composable
 private fun SupportsSheet(vm: SlicerViewModel, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Supports", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
             val selected = supportsChoice(vm)
             SUPPORT_CHOICES.forEach { choice ->
@@ -251,9 +252,58 @@ private fun SupportsSheet(vm: SlicerViewModel, onDismiss: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                 )
+                if (vm.multiMaterial) {
+                    SupportSlotPicker(vm, "support_material_extruder", "Support filament", null)
+                    SupportSlotPicker(
+                        vm, "support_material_interface_extruder", "Interface filament",
+                        "The layers that touch the model. A filament that does not bond to the model's, such as " +
+                            "PETG under PLA, lets the supports come off cleanly.",
+                    )
+                    // PrusaSlicer's rule: with a prime tower, grid and snug supports cannot change filament.
+                    val ownSlot = SlicerViewModel.SUPPORT_SLOT_KEYS.any { (vm.value(it)?.toIntOrNull() ?: 0) != 0 }
+                    if (ownSlot && style != "organic" && vm.value("wipe_tower") == "1") {
+                        Text(
+                            "Grid and snug supports print in a slot of their own only without the prime tower. " +
+                                "Organic supports can.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp),
+                        )
+                        TextButton(
+                            onClick = { vm.setOverride("support_material_style", "organic") },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        ) { Text("Use organic supports") }
+                    }
+                }
             }
         }
     }
+}
+
+/** Filament slot of the supports or their interface: "Any" prints with the filament loaded at each layer. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SupportSlotPicker(vm: SlicerViewModel, key: String, title: String, description: String?) {
+    val slot = vm.value(key)?.toIntOrNull() ?: 0
+    Text(title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp))
+    FlowRow(Modifier.padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = slot == 0, onClick = { vm.setOverride(key, "0") }, label = { Text("Any") })
+        vm.filaments.indices.forEach { i ->
+            FilterChip(
+                selected = slot == i + 1,
+                onClick = { vm.setOverride(key, "${i + 1}") },
+                label = { Text(shortFilamentName(vm.filaments[i]), maxLines = 1) },
+                leadingIcon = { SlotDot(vm.slotColors.getOrElse(i) { "#808080" }, i + 1, 18.dp) },
+            )
+        }
+    }
+    Text(
+        description ?: if (slot == 0) "Any: prints with the filament already loaded at each layer, so the supports add no filament changes."
+        else "Slot $slot: each layer with supports changes to this filament.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+    )
 }
 
 fun hasBrim(vm: SlicerViewModel) = (vm.value("brim_width")?.toDoubleOrNull() ?: 0.0) > 0.0

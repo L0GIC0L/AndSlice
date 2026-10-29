@@ -1,6 +1,7 @@
 #include "Engine.hpp"
 
 #include "GCodePreview.hpp"
+#include "MeshRepair.hpp"
 #include "Thumbnail.hpp"
 
 #include <algorithm>
@@ -30,6 +31,7 @@
 #include "libslic3r/Format/3mf.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Geometry.hpp"
+#include "libslic3r/MinAreaBoundingBox.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/ModelProcessing.hpp"
 #include "libslic3r/MultipleBeds.hpp"
@@ -38,6 +40,7 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/SLA/Rotfinder.hpp"
 #include "libslic3r/Slicing.hpp"
 #include "libslic3r/TriangleSelector.hpp"
 #include "libslic3r/Utils.hpp"
@@ -999,6 +1002,260 @@ void Engine::center_object(uint64_t id)
     touch_plate();
 }
 
+// ------------------------------------------------------------------ printability
+
+namespace {
+
+// Fraction of a facet with air under it rather than the object's own material: looking down from
+// just under it, a downward facing surface is hit first only from inside. Big facets are sampled at
+// the centers of up to 8 × 8 parts, as one can lie partly inside another body.
+double open_fraction(const AABBMesh& solid, const Vec3d& a, const Vec3d& b, const Vec3d& c, double area)
+{
+    const int n     = std::clamp(int(std::ceil(std::sqrt(area) / 2.)), 1, 8);
+    int       open  = 0;
+    auto      check = [&](double u, double v) {
+        const Vec3d p = a + (b - a) * u + (c - a) * v - Vec3d(0., 0., 0.02);
+        open += solid.query_ray_hit(p, -Vec3d::UnitZ()).is_inside() ? 0 : 1;
+    };
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; i + j < n; ++j) {
+            check((i + 1. / 3.) / n, (j + 1. / 3.) / n);
+            if (i + j < n - 1)
+                check((i + 2. / 3.) / n, (j + 2. / 3.) / n);
+        }
+    return double(open) / double(n * n);
+}
+
+// Area of the facets of `its` (in volume coordinates, placed by `trafo`) that face down and are
+// tilted from the bed by less than the angle whose cosine is `cos_limit`. Facets lying on the bed
+// at `bed_z` count as `contact` instead. With `solid`, the object in bed coordinates, facets with
+// the object's own material right under them are left out: they are inside where bodies overlap.
+void overhang_area(const indexed_triangle_set& its, const Transform3d& trafo, double cos_limit, double bed_z,
+                   double& overhang, double* contact, const AABBMesh* solid = nullptr)
+{
+    const bool flip = trafo.matrix().block<3, 3>(0, 0).determinant() < 0.;
+    for (const stl_triangle_vertex_indices& f : its.indices) {
+        const Vec3d a = trafo * its.vertices[f[0]].cast<double>();
+        const Vec3d b = trafo * its.vertices[f[1]].cast<double>();
+        const Vec3d c = trafo * its.vertices[f[2]].cast<double>();
+        Vec3d n = (b - a).cross(c - a);
+        if (flip)
+            n = -n;
+        const double len = n.norm();
+        if (len <= 0. || -n.z() / len <= cos_limit)
+            continue;
+        if (std::max({ a.z(), b.z(), c.z() }) <= bed_z + 0.1) {
+            if (contact)
+                *contact += 0.5 * len;
+        } else {
+            overhang += 0.5 * len * (solid ? open_fraction(*solid, a, b, c, 0.5 * len) : 1.);
+        }
+    }
+}
+
+bool object_bool(const ModelObject& o, const char* key, bool fallback)
+{
+    const ConfigOption* opt = o.config.option(key);
+    return opt ? opt->getBool() : fallback;
+}
+
+} // namespace
+
+std::string Engine::check_plate(float overhang_angle, bool supports, bool auto_supports)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    json out = json::array();
+    m_model->update_print_volume_state(build_volume(m_bed));
+    BoundingBoxf bed_bb;
+    for (const auto& p : m_bed.outline)
+        bed_bb.merge(Vec2d(p[0], p[1]));
+    for (const ModelObject* o : m_model->objects) {
+        if (o->instances.empty())
+            continue;
+        const ModelInstance* inst = o->instances.front();
+        const bool has_supports = object_bool(*o, "support_material", supports);
+        const bool everywhere   = object_bool(*o, "support_material_auto", auto_supports);
+        float      angle        = overhang_angle;
+        if (const ConfigOption* opt = o->config.option("support_material_threshold"); opt && opt->getInt() > 0)
+            angle = float(opt->getInt());
+        const double        cos_limit = std::cos(std::clamp(angle, 1.f, 89.f) * M_PI / 180.);
+        const BoundingBoxf3 bb        = o->instance_bounding_box(0);
+
+        TriangleMeshStats stats;
+        for (const ModelVolume* v : o->volumes)
+            if (v->is_model_part())
+                stats = stats.merge(v->mesh().stats());
+        // Overlapping bodies or parts have facets inside each other, which need no support.
+        // The tree refers to the mesh, so `all` lives as long as it does.
+        indexed_triangle_set    all;
+        std::optional<AABBMesh> solid;
+        if (stats.number_of_parts > 1) {
+            for (const ModelVolume* v : o->volumes)
+                if (v->is_model_part()) {
+                    indexed_triangle_set its = v->mesh().its;
+                    its_transform(its, inst->get_matrix() * v->get_matrix());
+                    its_merge(all, its);
+                }
+            solid.emplace(all);
+        }
+        double overhang = 0., enforced = 0., blocked = 0., contact = 0.;
+        for (const ModelVolume* v : o->volumes) {
+            if (!v->is_model_part())
+                continue;
+            const Transform3d trafo = inst->get_matrix() * v->get_matrix();
+            overhang_area(v->mesh().its, trafo, cos_limit, bb.min.z(), overhang, &contact, solid ? &*solid : nullptr);
+            if (has_supports && everywhere)
+                overhang_area(v->supported_facets.get_facets(*v, TriangleStateType::BLOCKER), trafo, cos_limit, bb.min.z(), blocked, nullptr);
+            else if (has_supports)
+                overhang_area(v->supported_facets.get_facets(*v, TriangleStateType::ENFORCER), trafo, cos_limit, bb.min.z(), enforced, nullptr);
+        }
+        const double unsupported = !has_supports ? overhang : everywhere ? blocked : std::max(0., overhang - enforced);
+        const Vec3d  size        = bb.size();
+        const bool   too_big     = size.x() > bed_bb.size().x() + EPSILON || size.y() > bed_bb.size().y() + EPSILON ||
+                                   (m_bed.max_height > 0.f && size.z() > m_bed.max_height + EPSILON);
+        const RepairedMeshErrors& r = stats.repaired_errors;
+        out.push_back({
+            {"id", o->id().id},
+            {"name", o->name},
+            {"open_edges", stats.open_edges},
+            {"repaired_errors", r.degenerate_facets + r.edges_fixed + r.facets_removed + r.facets_reversed + r.backwards_edges},
+            {"shells", stats.number_of_parts},
+            {"overhang_mm2", overhang},
+            {"unsupported_mm2", unsupported},
+            {"contact_mm2", contact},
+            {"size", { size.x(), size.y(), size.z() }},
+            {"outside", inst->print_volume_state != ModelInstancePVS_Inside},
+            {"too_big", too_big},
+        });
+    }
+    return out.dump();
+}
+
+std::string Engine::repair_object(uint64_t id)
+{
+    // The meshes are copied and repaired without the lock, which can take a while for a big model.
+    std::vector<std::pair<ObjectID, indexed_triangle_set>> parts;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        ModelObject* o = find_object(id);
+        if (o == nullptr)
+            return json{ {"repaired", 0}, {"holes_filled", 0}, {"holes_left", 0}, {"open_edges", 0} }.dump();
+        for (const ModelVolume* v : o->volumes)
+            if (v->is_model_part() && v->mesh().stats().open_edges > 0)
+                parts.emplace_back(v->id(), v->mesh().its);
+    }
+    int filled = 0, left = 0;
+    std::vector<std::pair<ObjectID, MeshRepairResult>> repaired;
+    for (auto& [volume_id, its] : parts) {
+        MeshRepairResult r = repair_mesh(its);
+        filled += r.holes_filled;
+        left += r.holes_left;
+        if (!r.its.indices.empty())
+            repaired.emplace_back(volume_id, std::move(r));
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    int          count = 0, open_edges = 0;
+    if (o != nullptr) {
+        end_paint_of(id);
+        for (ModelVolume* v : o->volumes) {
+            auto it = std::find_if(repaired.begin(), repaired.end(), [v](const auto& r) { return r.first == v->id(); });
+            if (it != repaired.end()) {
+                v->set_mesh(TriangleMesh(std::move(it->second.its)));
+                v->calculate_convex_hull();
+                // The painting belongs to the old facets.
+                v->supported_facets.reset();
+                v->seam_facets.reset();
+                v->mm_segmentation_facets.reset();
+                v->fuzzy_skin_facets.reset();
+                ++count;
+            }
+            if (v->is_model_part())
+                open_edges += v->mesh().stats().open_edges;
+        }
+        if (count > 0) {
+            m_meshes.erase(std::remove_if(m_meshes.begin(), m_meshes.end(), [id](const auto& m) { return m.first == id; }), m_meshes.end());
+            o->invalidate_bounding_box();
+            o->ensure_on_bed();
+            m_model->update_print_volume_state(build_volume(m_bed));
+            touch_plate();
+        }
+    }
+    return json{ {"repaired", count}, {"holes_filled", filled}, {"holes_left", left}, {"open_edges", open_edges} }.dump();
+}
+
+void Engine::optimize_orientation(uint64_t id)
+{
+    // Searched on a copy without the lock, as PrusaSlicer's RotoptimizeJob does in the background.
+    Model copy;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const ModelObject* o = find_object(id);
+        if (o == nullptr || o->instances.empty())
+            return;
+        copy.add_object(*o);
+    }
+    // No elevation: the object stands on the bed, so the search tries the faces of its convex hull.
+    DynamicPrintConfig config;
+    config.set_key_value("support_object_elevation", new ConfigOptionFloat(0.));
+    const Vec2d rot = sla::find_least_supports_rotation(*copy.objects.front(), sla::RotOptimizeParams{}.print_config(&config));
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    if (o == nullptr)
+        return;
+    end_paint_of(id);
+    for (ModelInstance* inst : o->instances) {
+        inst->set_rotation({ rot.x(), rot.y(), 0. });
+        // Then turned about Z so its smallest footprint box lies along X, as PrusaSlicer finishes it.
+        const Polygon hull = o->convex_hull_2d(inst->get_transformation().get_matrix());
+        if (!hull.empty()) {
+            MinAreaBoundigBox box(hull, MinAreaBoundigBox::pcConvex);
+            double            phi = box.angle_to_X();
+            if (box.width() < box.height())
+                phi += PI / 2;
+            Vec3d r = inst->get_rotation();
+            r.z() += phi;
+            inst->set_rotation(r);
+        }
+    }
+    o->invalidate_bounding_box();
+    o->ensure_on_bed();
+    m_model->update_print_volume_state(build_volume(m_bed));
+    touch_plate();
+}
+
+void Engine::scale_to_fit(uint64_t id)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ModelObject* o = find_object(id);
+    if (o == nullptr || o->instances.empty())
+        return;
+    BoundingBoxf bed_bb;
+    for (const auto& p : m_bed.outline)
+        bed_bb.merge(Vec2d(p[0], p[1]));
+    const Vec3d size   = o->instance_bounding_box(0).size();
+    // A little room at the edges, as the skirt and brim need it.
+    const double margin = 2. * m_arrange_distance;
+    double factor = std::min((bed_bb.size().x() - margin) / size.x(), (bed_bb.size().y() - margin) / size.y());
+    if (m_bed.max_height > 0.f)
+        factor = std::min(factor, double(m_bed.max_height) / size.z());
+    if (!(factor > 0.) || factor >= 1.)
+        return;
+    end_paint_of(id);
+    for (ModelInstance* inst : o->instances)
+        inst->set_scaling_factor(inst->get_scaling_factor() * factor);
+    o->invalidate_bounding_box();
+    const BoundingBoxf3 bb   = o->instance_bounding_box(0);
+    ModelInstance*      inst = o->instances.front();
+    inst->set_offset(inst->get_offset() + Vec3d(bed_bb.center().x() - bb.center().x(), bed_bb.center().y() - bb.center().y(), 0.));
+    o->invalidate_bounding_box();
+    o->ensure_on_bed();
+    m_model->update_print_volume_state(build_volume(m_bed));
+    touch_plate();
+}
+
 std::string Engine::objects_json()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -1932,6 +2189,20 @@ std::string Engine::slice(const SliceRequest& request, const ProgressFn& progres
             progress(95, "Exporting G-code");
         std::string written = print.export_gcode(request.output_path, &gcode_result, thumbnails);
         m_print.store(nullptr);
+
+        // The warnings slicing raised, as PrusaSlicer shows them: print stability issues when supports
+        // seem to be needed, empty layers, extrusions too thin for the nozzle and so on.
+        const auto add_warnings = [&warnings](const PrintStateBase::StateWithWarnings& state) {
+            for (const PrintStateBase::Warning& w : state.warnings)
+                if (!w.message.empty() && std::find(warnings.begin(), warnings.end(), w.message) == warnings.end())
+                    warnings.push_back(w.message);
+        };
+        for (unsigned step = 0; step < psCount; ++step)
+            add_warnings(print.step_state_with_warnings(PrintStep(step)));
+        for (const PrintObject* po : print.objects())
+            for (unsigned step = 0; step < posCount; ++step)
+                add_warnings(po->step_state_with_warnings(PrintObjectStep(step)));
+        result["warnings"] = warnings;
 
         const PrintStatistics& stats = print.print_statistics();
         // The file name template may use statistics such as [print_time], known only now.

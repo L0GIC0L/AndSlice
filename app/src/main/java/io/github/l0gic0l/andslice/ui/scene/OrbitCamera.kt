@@ -15,12 +15,8 @@ class OrbitCamera {
     var yawDeg = -110f
     var pitchDeg = 35f
     var aspect = 1f
-    /** Lowest pitch; painting may look at an object from below the bed. */
-    var minPitchDeg = -5f
-        set(value) {
-            field = value
-            pitchDeg = pitchDeg.coerceAtLeast(value)
-        }
+    /** Lowest pitch: the view may go under the bed, to see and paint an object's underside. */
+    private val minPitchDeg = -85f
     private val fovDeg = 40f
 
     /** Bed the camera was last framed on, so returning to the plate keeps the user's view. */

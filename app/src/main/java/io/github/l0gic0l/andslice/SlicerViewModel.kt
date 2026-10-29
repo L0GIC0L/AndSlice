@@ -401,14 +401,23 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         updateArrangeDistance()
         syncSlots()
         if (result != null) resultStale = true
+        scheduleCheck()
     }
 
     // ------------------------------------------------------------------ filament slots
 
-    /** Extruders the plate uses; painted objects may use any of them. */
+    /** Extruders the plate uses, supports included; painted objects may use any of them. */
     val usedExtruders: Set<Int>
-        get() = if (objects.any { it.painted }) (1..extruderCount).toSet()
-                else objects.flatMap { it.extruders }.map { it.coerceIn(1, extruderCount) }.toSet()
+        get() = when {
+            objects.isEmpty() -> emptySet()
+            objects.any { it.painted } -> (1..extruderCount).toSet()
+            else -> objects.flatMap { it.extruders }.map { it.coerceIn(1, extruderCount) }.toSet() + supportExtruders()
+        }
+
+    /** Slots the supports are set to print with; 0 (the filament loaded at each layer) adds none. */
+    private fun supportExtruders(): Set<Int> =
+        if (value("support_material") != "1") emptySet()
+        else SUPPORT_SLOT_KEYS.mapNotNull { value(it)?.toIntOrNull() }.filter { it in 1..extruderCount }.toSet()
 
     /** PrusaSlicer prints a wipe tower when it is enabled and the plate uses more than one filament. */
     val wipeTowerVisible: Boolean
@@ -793,6 +802,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             syncSlots()
             redraw()
             scheduleAutosave()
+            scheduleCheck()
         }
     }
 
@@ -869,6 +879,93 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The move, rotate and scale panel is open for the selected object. */
     var transformOpen by mutableStateOf(false)
+
+    // ------------------------------------------------------------------ printability
+
+    /** What the last check of the plate found, per object. */
+    var plateChecks by mutableStateOf<List<ObjectCheck>>(emptyList()); private set
+    private var checkJob: Job? = null
+
+    private val automaticSupports: Boolean
+        get() = value("support_material") == "1" && value("support_material_auto") != "0"
+    private val hasBrim: Boolean
+        get() = (value("brim_width")?.toDoubleOrNull() ?: 0.0) > 0.0
+
+    /** Overhang angle supports start at; PrusaSlicer's automatic threshold (0) is about 45°. */
+    private val overhangThreshold: Int
+        get() = value("support_material_threshold")?.toIntOrNull()?.takeIf { it > 0 } ?: 45
+
+    /** What may keep the print from printing well: from the plate check, and from the last slice while it is current. */
+    val printIssues: List<PrintIssue>
+        get() {
+            val checks = plateChecks.filter { c -> objects.any { it.id == c.id } }
+            val plate = Printability.plateIssues(checks, automaticSupports, hasBrim, overhangThreshold)
+            val slice = result?.takeIf { !resultStale }?.let { Printability.sliceIssues(it.warnings, automaticSupports, hasBrim) }
+            return plate + slice.orEmpty()
+        }
+
+    /** Checks the plate once a burst of changes (a drag, typing a value) has settled. */
+    private fun scheduleCheck() {
+        checkJob?.cancel()
+        val angle = overhangThreshold.toFloat()
+        val supports = value("support_material") == "1"
+        val everywhere = value("support_material_auto") != "0"
+        checkJob = viewModelScope.launch {
+            delay(400)
+            try {
+                engineReady.await()
+                val checks = withContext(Dispatchers.Default) { ObjectCheck.parseList(NativeEngine.checkPlate(angle, supports, everywhere)) }
+                plateChecks = checks
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "Checking the plate failed", e)
+            }
+        }
+    }
+
+    /** Applies one of the fixes offered with an issue. */
+    fun fixIssue(issue: PrintIssue, fix: IssueFix) {
+        val id = issue.objectId
+        when (fix) {
+            IssueFix.Supports -> {
+                setOverride("support_material", "1")
+                setOverride("support_material_auto", "1")
+            }
+            IssueFix.Brim -> setOverride("brim_width", "5")
+            IssueFix.Arrange -> arrange()
+            IssueFix.ScaleToFit -> if (id != null) plateChange {
+                NativeEngine.scaleToFit(id)
+                refreshObjects()
+            }
+            IssueFix.Orient -> if (id != null) {
+                stopPainting()
+                plateChange("Finding the best orientation…") {
+                    NativeEngine.optimizeOrientation(id)
+                    refreshObjects()
+                }
+            }
+            IssueFix.Repair -> if (id != null) {
+                stopPainting()
+                val painted = objects.firstOrNull { it.id == id }?.let { it.painted || it.supportPainted || it.seamPainted || it.fuzzyPainted } == true
+                plateChange("Repairing the model…") {
+                    val r = JSONObject(NativeEngine.repairObject(id))
+                    refreshObjects()
+                    withContext(Dispatchers.Main) {
+                        val filled = r.optInt("holes_filled")
+                        val left = r.optInt("open_edges")
+                        message = (if (left == 0) "Repaired: filled $filled ${if (filled == 1) "hole" else "holes"}."
+                                   else "Filled $filled holes; $left open edges are left, from holes too large to fill.") +
+                            if (painted && r.optInt("repaired") > 0) " The painting on it was cleared." else ""
+                    }
+                }
+            }
+            IssueFix.PaintSupports -> if (id != null && mode == ViewMode.Plate) {
+                select(id)
+                showOverhangs = true
+                overhangAngle = overhangThreshold.toFloat()
+                startPainting(PaintMode.SUPPORTS)
+            }
+        }
+    }
 
     // ------------------------------------------------------------------ mirror, split, cut
 
@@ -1047,6 +1144,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.Main) {
                 paintMode = if (ok) mode else null
                 paintCanUndo = false
+                if (ok && mode == PaintMode.SUPPORTS && (showOverhangs || overhangsOnly)) updateOverhangHighlight()
                 redraw()
             }
         }
@@ -1282,7 +1380,8 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
                 if (r.extrudersUsed.size > 1 && viewType == 0) viewType = VIEW_TYPE_TOOL
                 syncSlots()
                 if (r.warnings.isNotEmpty()) {
-                    message = r.warnings.joinToString("\n")
+                    val fixable = Printability.sliceIssues(r.warnings, automaticSupports, hasBrim).any { it.fixes.isNotEmpty() }
+                    message = r.warnings.joinToString("\n") + if (fixable) "\n\nFixes are under Check print." else ""
                 } else if (mode != ViewMode.Preview) {
                     message = "Sliced. Open the preview to print or save the G-code."
                 }
@@ -1373,10 +1472,13 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         private const val TAG = "AndSlice"
         private const val AUTOSAVE_DELAY_MS = 2_000L
         /** Keys behind the quick settings bar, kept when the print profile changes. */
+        /** Filament slot of the supports and of their interface layers, 1-based; 0 is the slot loaded at the layer. */
+        val SUPPORT_SLOT_KEYS = listOf("support_material_extruder", "support_material_interface_extruder")
+
         val QUICK_SETTINGS = setOf(
             "support_material", "support_material_auto", "support_material_buildplate_only", "support_material_style",
             "fill_density", "brim_width",
-        )
+        ) + SUPPORT_SLOT_KEYS
         private const val KEY_PRINTER = "printer"
         private const val KEY_PRINT = "print"
         private const val KEY_FILAMENT = "filament"

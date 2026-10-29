@@ -187,6 +187,23 @@ public:
     // Returns the id of the closest object hit by the world-space ray, or -1.
     int64_t     pick(const float origin[3], const float dir[3]);
 
+    // ---------------------------------------------------------------- printability
+    // What may keep each object from printing well, worked out from its mesh before slicing:
+    // [{"id", "name", "open_edges", "repaired_errors", "shells", "overhang_mm2", "unsupported_mm2",
+    //   "contact_mm2", "size": [x, y, z], "outside", "too_big"}]
+    // Overhangs are facets facing down and tilted less than `overhang_angle` degrees from the bed;
+    // unsupported_mm2 is the part of them supports leave out with the given settings (`supports` on,
+    // `auto_supports` everywhere or only where painted) and the painting. An object's own settings win.
+    std::string check_plate(float overhang_angle, bool supports, bool auto_supports);
+    // Repairs the meshes of the object's parts that have holes (see MeshRepair.hpp). Painting on a
+    // repaired part is cleared. Returns {"repaired": parts, "holes_filled", "holes_left", "open_edges"}.
+    std::string repair_object(uint64_t id);
+    // Turns the object so the least of it overhangs, standing on its best face, as PrusaSlicer's
+    // "Optimize orientation" with "Reduced overhang slopes" does.
+    void        optimize_orientation(uint64_t id);
+    // Scales an object that does not fit the print volume down until it does, and centers it.
+    void        scale_to_fit(uint64_t id);
+
     // ---------------------------------------------------------------- calibration
     // Replaces the plate with a generated test object, plus G-code to run from given heights on
     // (PrusaSlicer's custom G-code per print height). Shapes:

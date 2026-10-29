@@ -277,7 +277,7 @@ void SceneRenderer::sync_preview()
         m_preview.clear();
 }
 
-void SceneRenderer::draw_bed(const float viewproj[16])
+void SceneRenderer::draw_bed(const float viewproj[16], bool from_below)
 {
     if (m_bed_vao == 0)
         return;
@@ -287,10 +287,12 @@ void SceneRenderer::draw_bed(const float viewproj[16])
     glBindVertexArray(m_bed_vao);
 
     glDepthMask(GL_FALSE);
-    glUniform4fv(color, 1, m_palette[Bed]);
-    glDrawArrays(GL_TRIANGLE_FAN, m_bed_fill_first, m_bed_fill_count);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Seen from below, the bed is a faint pane, as in PrusaSlicer, so it does not read as a floor.
+    float fill[4] = { m_palette[Bed][0], m_palette[Bed][1], m_palette[Bed][2], m_palette[Bed][3] * (from_below ? 0.35f : 1.f) };
+    glUniform4fv(color, 1, fill);
+    glDrawArrays(GL_TRIANGLE_FAN, m_bed_fill_first, m_bed_fill_count);
     glUniform4fv(color, 1, m_palette[Grid]);
     glDrawArrays(GL_LINES, m_bed_grid_first, m_bed_grid_count);
     glUniform4fv(color, 1, m_palette[Edges]);
@@ -489,7 +491,9 @@ void SceneRenderer::draw(const float view[16], const float projection[16], int m
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_CULL_FACE);
 
-    draw_bed(viewproj);
+    // Camera height: the view matrix is [R | t], so the eye is -R^T t.
+    const float eye_z = -(view[8] * view[12] + view[9] * view[13] + view[10] * view[14]);
+    draw_bed(viewproj, eye_z < 0.f);
     if (mode == ModePreview && m_preview.has_data()) {
         m_preview.render(view, projection);
         // libvgcode leaves its own program and buffers bound.

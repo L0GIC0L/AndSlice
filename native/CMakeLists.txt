@@ -144,6 +144,17 @@ add_library(andslice_core STATIC
 target_include_directories(andslice_core PUBLIC src "${PS_SRC}")
 target_link_libraries(andslice_core PUBLIC libslic3r slic3r-arrange-wrapper libvgcode)
 
+# Mesh repair, with CGAL as libslic3r_cgal uses it: GCC needs -frounding-math for CGAL's
+# interval arithmetic, and the option must not spread to the rest of the build.
+find_package(CGAL REQUIRED)
+add_library(andslice_cgal STATIC src/MeshRepair.cpp)
+target_include_directories(andslice_cgal PUBLIC src "${PS_SRC}")
+target_link_libraries(andslice_cgal PRIVATE CGAL::CGAL PUBLIC libslic3r)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(andslice_cgal PRIVATE -frounding-math)
+endif ()
+target_link_libraries(andslice_core PRIVATE andslice_cgal)
+
 if (ANDROID)
     add_library(andslice SHARED
         src/jni_bridge.cpp

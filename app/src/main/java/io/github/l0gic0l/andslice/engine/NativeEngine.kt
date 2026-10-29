@@ -56,6 +56,17 @@ object NativeEngine {
     external fun mirrorObject(id: Long, axis: Int)
     /** Splits where the mesh is not connected, into objects or parts; {"ids"}, empty when it is one piece. */
     external fun splitObject(id: Long, intoParts: Boolean): String
+    /**
+     * What may keep each object from printing well (see Engine::check_plate): mesh errors, overhang
+     * area left unsupported with these settings, bed contact, and whether it fits the bed.
+     */
+    external fun checkPlate(overhangAngle: Float, supports: Boolean, autoSupports: Boolean): String
+    /** Fills the holes of the object's mesh; {"repaired", "holes_filled", "holes_left", "open_edges"}. */
+    external fun repairObject(id: Long): String
+    /** Turns the object for the least overhang, as PrusaSlicer's "Optimize orientation". */
+    external fun optimizeOrientation(id: Long)
+    /** Scales an object too big for the printer down until it fits, and centers it. */
+    external fun scaleToFit(id: Long)
     /** Cuts across at [height] mm above the bed; {"ids"} of the parts kept. */
     external fun cutObject(id: Long, height: Double, keepUpper: Boolean, keepLower: Boolean, upperOnCut: Boolean): String
     /** Shows where a cut at [height] would go across the object; below 0 hides it. */

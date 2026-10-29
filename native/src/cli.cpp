@@ -25,6 +25,10 @@
 // --object-set OBJECT:KEY=VALUE overrides an option for one object, and
 // --range OBJECT:MIN-MAX:KEY=VALUE for one object between two heights.
 //
+// --check prints what may keep each object from printing well (Engine::check_plate), with the
+// --set support settings, before and after the edits. --fix OBJECT=repair|orient|fit repairs the
+// object's mesh, turns it for the least overhang, or scales it to fit the bed.
+//
 // --project IN.3mf opens a 3MF project as the plate (before the models are added), and
 // --save-project OUT.3mf saves the plate with the settings once the models are added and painted.
 #include <cstdio>
@@ -61,7 +65,7 @@ int main(int argc, char** argv)
     std::vector<std::pair<int, float>> adaptive;
     std::vector<std::pair<std::string, std::pair<int, std::string>>> edits;
     std::vector<std::string> models;
-    bool list = false, undo_check = false;
+    bool list = false, undo_check = false, check = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -88,7 +92,7 @@ int main(int argc, char** argv)
                 return usage();
             paints.emplace_back(std::stoi(kv.substr(0, eq)), kv.substr(eq + 1));
         }
-        else if (a == "--mirror" || a == "--split" || a == "--cut") {
+        else if (a == "--mirror" || a == "--split" || a == "--cut" || a == "--fix") {
             const std::string spec = next();
             const size_t eq = spec.find('=');
             if (eq == std::string::npos)
@@ -109,6 +113,7 @@ int main(int argc, char** argv)
         else if (a == "-o")         output = next();
         else if (a == "--list")     list = true;
         else if (a == "--undo-check") undo_check = true;
+        else if (a == "--check")    check = true;
         else if (a == "--calibration") calibration = next();
         else if (a == "--set") {
             const std::string kv = next();
@@ -193,16 +198,41 @@ int main(int argc, char** argv)
         }
         for (const std::string& m : models)
             std::cout << "loaded " << m << ": " << engine.add_model(m, "") << "\n";
+        auto print_check = [&](const char* when) {
+            if (!check)
+                return;
+            auto setting = [&overrides](const std::string& key, const std::string& fallback) {
+                std::string value = fallback;
+                for (const auto& [k, v] : overrides)
+                    if (k == key)
+                        value = v;
+                return value;
+            };
+            std::cout << "check " << when << ": "
+                      << engine.check_plate(std::stof(setting("support_material_threshold", "40")),
+                                            setting("support_material", "0") == "1", setting("support_material_auto", "1") == "1")
+                      << "\n";
+        };
+        print_check("before");
         for (const auto& [what, spec] : edits) {
             const json now = json::parse(engine.objects_json());
             const uint64_t id = now.at(size_t(spec.first))["id"].get<uint64_t>();
-            if (what == "--mirror")
+            if (what == "--fix") {
+                if (spec.second == "repair")
+                    std::cout << "repair: " << engine.repair_object(id) << "\n";
+                else if (spec.second == "orient")
+                    engine.optimize_orientation(id);
+                else
+                    engine.scale_to_fit(id);
+            } else if (what == "--mirror")
                 engine.mirror_object(id, spec.second == "x" ? 0 : spec.second == "y" ? 1 : 2);
             else if (what == "--split")
                 std::cout << "split: " << engine.split_object(id, spec.second == "parts") << "\n";
             else
                 std::cout << "cut: " << engine.cut_object(id, std::stod(spec.second), true, true, true) << "\n";
         }
+        if (!edits.empty())
+            print_check("after");
         const json objects = json::parse(engine.objects_json());
         for (const auto& [index, extruder] : extruders)
             if (index >= 0 && index < int(objects.size()))

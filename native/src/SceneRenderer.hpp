@@ -46,7 +46,7 @@ private:
     void sync_plate();
     void sync_bed();
     void sync_preview();
-    void draw_bed(const float viewproj[16]);
+    void draw_bed(const float viewproj[16], bool from_below);
     void draw_objects(const float viewproj[16], bool dimmed);
     void draw_wipe_tower(const float viewproj[16], bool dimmed);
     void draw_cut_plane(const float viewproj[16]);

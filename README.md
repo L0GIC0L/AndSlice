@@ -29,13 +29,19 @@ Android 12+ and light and dark themes.
   in a filament profile of your own.
 - **Undo and redo** for the plate: moves, deletes, imports, cuts, settings per object and whole painting
   sessions, 30 steps back
+- **Check print** (the chip over the plate, or plate menu → Check print): warns about holes in a model,
+  large overhangs that supports leave out, objects that barely touch the bed, and objects that are off the
+  bed or too big for it, each with fixes: repair the mesh (CGAL fills the holes), optimize orientation
+  (PrusaSlicer's search for the fewest overhangs), turn on or paint supports, add a brim, scale to fit or
+  arrange. After slicing it also lists PrusaSlicer's own stability check (loose extrusions, long bridges,
+  floating parts, low bed adhesion)
 - Mirror along X, Y or Z; split an object into separate objects, or into parts that get their own filament
   slots; and cut an object across at a height shown as a plane, with the upper part turned onto its cut face
 - **Painting** with PrusaSlicer's own painting engine: paint where supports go or must not go, where seams
   go or must not go, walls with fuzzy skin, and on the Kobra 3 Combo areas in other filaments. Tools: a circle or sphere brush of 1-30 mm, smart fill that
   stops at edges sharper than a chosen angle, and height bands (0.1-10 mm) for stripes. For supports:
   paint only overhangs below a chosen angle, show those overhangs, or support or block all of them at once.
-  Undo and clear.
+  Undo and clear. The view turns under the bed, to see and paint an object's underside.
 - **Object settings** (the slider icon on an object): variable layer height with PrusaSlicer's adaptive
   algorithm (thin layers on curves and slopes, thick ones on walls, from finer to faster), settings for one
   object only (any of PrusaSlicer's object and region options, such as infill, perimeters or supports), and
@@ -53,7 +59,8 @@ Android 12+ and light and dark themes.
   preview. **Read ACE** fills the slots from the printer: each loaded slot's color and the filament profile
   for its material, from Rinkhals' `mmu` object or Klipper's ACEPRO driver
 - Quick settings for supports (on the plate, everywhere or only where painted; grid, snug or organic tree
-  supports), infill and brim, plus a full editor for every PrusaSlicer print, filament and
+  supports; on the Combo, the filament slot of the supports and of their interface layers), infill and
+  brim, plus a full editor for every PrusaSlicer print, filament and
   printer option. Options sit on PrusaSlicer's own pages and groups (Simple / Advanced / Expert, with
   PrusaSlicer's own tooltips), and search covers all of them.
 - Slicing with progress and cancel, then a layer-by-layer preview with feature, speed, height, width, fan,
@@ -142,6 +149,11 @@ API key is stored in the app's private storage.
    with one finger; drag beside the object to turn it. **Fill** colors a whole area up to its sharp edges.
 5. Slice. The preview opens in the **Filament** view; the prime tower can be dragged on the plate.
 
+Supports print with **Any** filament by default: the one loaded at each layer, so they add no filament
+changes. Under **Supports** a slot can be chosen for the supports and another for their interface layers,
+such as PETG under PLA, which does not bond and comes off cleanly. With the prime tower, PrusaSlicer allows
+that only for organic supports.
+
 Every filament change is a plain `T0`-`T3`. The firmware cuts the filament, swaps it and purges into the
 chute, as with Anycubic Slicer Next, and the prime tower only takes the small purge that follows. Rinkhals
 maps T0-T3 to ACE slots 1-4. A single-color print on slot 1 contains no `T` command, so the printer uses the
@@ -181,6 +193,7 @@ Repeat the two native steps with `x86_64` for emulator builds.
   `--range 0:10-20:layer_height=0.1` set variable layer height, object settings and height ranges;
   `--mirror 0=x`, `--split 0=objects` and `--cut 0=12` mirror, split and cut;
   `--calibration temperature_tower:6:8:0.4=M104 S220:8.2=M104 S215` places a test print with G-code at heights.
+  `--check` prints the printability check, and `--fix 0=repair`, `--fix 0=orient` or `--fix 0=fit` applies a fix.
 
 ### Release signing
 
@@ -195,6 +208,7 @@ secrets: `ANDSLICE_KEYSTORE_BASE64` (`base64 -w0 release.jks`), `ANDSLICE_KEYSTO
 | --- | --- |
 | `native/CMakeLists.txt` | Builds PrusaSlicer's `libslic3r`, its bundled libraries and `libvgcode` for Android |
 | `native/src/Engine.*` | Presets, plate and slicing on top of libslic3r, following PrusaSlicer's CLI |
+| `native/src/MeshRepair.*` | Mesh repair with CGAL: stitching, hole filling and orienting the facets |
 | `native/src/SceneRenderer.*`, `PreviewRenderer.*` | OpenGL ES 3 plate view and the libvgcode preview |
 | `native/src/jni_bridge.cpp` | JNI entry points for `NativeEngine.kt` |
 | `native/src/stubs/` | Stand-ins for the parts of libslic3r that are not built (see below) |

@@ -33,3 +33,8 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Native build outputs and fetched sources
+/build/
+/third_party/
+/app/src/main/jniLibs/

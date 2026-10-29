@@ -1,0 +1,193 @@
+diff --git a/src/libslic3r/Preset.cpp b/src/libslic3r/Preset.cpp
+index 2bacd57..85aaa3e 100644
+--- a/src/libslic3r/Preset.cpp
++++ b/src/libslic3r/Preset.cpp
+@@ -492,6 +492,7 @@ static std::vector<std::string> s_Preset_print_options {
+     "min_skirt_length", "brim_width", "brim_separation", "brim_type", "support_material", "support_material_auto", "support_material_threshold", "support_material_enforce_layers",
+     "raft_layers", "raft_first_layer_density", "raft_first_layer_expansion", "raft_contact_distance", "raft_expansion",
+     "support_material_pattern", "support_material_with_sheath", "support_material_spacing", "support_material_closing_radius", "support_material_style",
++    "make_overhang_printable", "make_overhang_printable_angle", "make_overhang_printable_hole_size",
+     "support_material_synchronize_layers", "support_material_angle", "support_material_interface_layers", "support_material_bottom_interface_layers",
+     "support_material_interface_pattern", "support_material_interface_spacing", "support_material_interface_contact_loops", 
+     "support_material_contact_distance", "support_material_bottom_contact_distance",
+diff --git a/src/libslic3r/Print.hpp b/src/libslic3r/Print.hpp
+index 16081cf..57979b2 100644
+--- a/src/libslic3r/Print.hpp
++++ b/src/libslic3r/Print.hpp
+@@ -437,6 +437,8 @@ private:
+     void calculate_overhanging_perimeters();
+ 
+     void slice_volumes();
++    // Grows each layer under the next one so no overhang is steeper than make_overhang_printable_angle.
++    void apply_conical_overhang();
+     // Has any support (not counting the raft).
+     void detect_surfaces_type();
+     void process_external_surfaces();
+diff --git a/src/libslic3r/PrintConfig.cpp b/src/libslic3r/PrintConfig.cpp
+index 9e01436..e4dbbb1 100644
+--- a/src/libslic3r/PrintConfig.cpp
++++ b/src/libslic3r/PrintConfig.cpp
+@@ -3325,6 +3325,37 @@ void PrintConfigDef::init_fff_params()
+     def->mode = comAdvanced;
+     def->set_default_value(new ConfigOptionEnum<SlicingMode>(SlicingMode::Regular));
+ 
++    // Make overhangs printable, as OrcaSlicer has it (after Cura's conical overhang).
++    def = this->add("make_overhang_printable", coBool);
++    def->label = L("Make overhangs printable");
++    def->category = L("Support material");
++    def->tooltip = L("Modify the geometry to print overhangs without support material: material is added under "
++                     "overhangs that are steeper than the maximum angle, down to the layer or bed below.");
++    def->mode = comSimple;
++    def->set_default_value(new ConfigOptionBool(false));
++
++    def = this->add("make_overhang_printable_angle", coFloat);
++    def->label = L("Maximum overhang angle");
++    def->category = L("Support material");
++    def->tooltip = L("Maximum angle of overhangs, from vertical, after steeper overhangs have been made printable. "
++                     "90° does not change the model at all and allows any overhang, while 0 replaces all overhangs "
++                     "with material down to the bed. 45° prints on most printers (OrcaSlicer uses 55°).");
++    def->sidetext = L("°");
++    def->min = 0.;
++    def->max = 90.;
++    def->mode = comAdvanced;
++    def->set_default_value(new ConfigOptionFloat(45.));
++
++    def = this->add("make_overhang_printable_hole_size", coFloat);
++    def->label = L("Keep holes in the base up to");
++    def->category = L("Support material");
++    def->tooltip = L("Holes in the bottom of the model up to this area keep their opening and are not filled. "
++                     "0 fills every hole in the model's base.");
++    def->sidetext = L("mm²");
++    def->min = 0.;
++    def->mode = comAdvanced;
++    def->set_default_value(new ConfigOptionFloat(0.));
++
+     def = this->add("support_material", coBool);
+     def->label = L("Generate support material");
+     def->category = L("Support material");
+diff --git a/src/libslic3r/PrintConfig.hpp b/src/libslic3r/PrintConfig.hpp
+index 7f4ecbd..49d38c1 100644
+--- a/src/libslic3r/PrintConfig.hpp
++++ b/src/libslic3r/PrintConfig.hpp
+@@ -673,6 +673,9 @@ PRINT_CONFIG_CLASS_DEFINE(
+ //  ((ConfigOptionFloat,               seam_preferred_direction_jitter))
+     ((ConfigOptionFloat,               slice_closing_radius))
+     ((ConfigOptionEnum<SlicingMode>,   slicing_mode))
++    // Make overhangs printable (Cura's conical overhang, as OrcaSlicer has it).
++    ((ConfigOptionFloat,               make_overhang_printable_angle))
++    ((ConfigOptionFloat,               make_overhang_printable_hole_size))
+     ((ConfigOptionEnum<PerimeterGeneratorType>, perimeter_generator))
+     ((ConfigOptionFloatOrPercent,      wall_transition_length))
+     ((ConfigOptionFloatOrPercent,      wall_transition_filter_deviation))
+@@ -793,6 +796,8 @@ PRINT_CONFIG_CLASS_DEFINE(
+     ((ConfigOptionFloatOrPercent,       solid_infill_speed))
+     // Detect thin walls.
+     ((ConfigOptionBool,                 thin_walls))
++    // Make overhangs printable, per region as in OrcaSlicer.
++    ((ConfigOptionBool,                 make_overhang_printable))
+     ((ConfigOptionFloatOrPercent,       top_infill_extrusion_width))
+     ((ConfigOptionInt,                  top_solid_layers))
+     ((ConfigOptionFloat,                top_solid_min_thickness))
+diff --git a/src/libslic3r/PrintObject.cpp b/src/libslic3r/PrintObject.cpp
+index 9aa02e6..7a3372a 100644
+--- a/src/libslic3r/PrintObject.cpp
++++ b/src/libslic3r/PrintObject.cpp
+@@ -764,6 +764,9 @@ bool PrintObject::invalidate_state_by_config_options(
+             || opt_key == "raft_contact_distance"
+             || opt_key == "slice_closing_radius"
+             || opt_key == "slicing_mode"
++            || opt_key == "make_overhang_printable"
++            || opt_key == "make_overhang_printable_angle"
++            || opt_key == "make_overhang_printable_hole_size"
+             || opt_key == "interlocking_beam"
+             || opt_key == "interlocking_orientation"
+             || opt_key == "interlocking_beam_layer_count"
+diff --git a/src/libslic3r/PrintObjectSlice.cpp b/src/libslic3r/PrintObjectSlice.cpp
+index 2059589..024b25d 100644
+--- a/src/libslic3r/PrintObjectSlice.cpp
++++ b/src/libslic3r/PrintObjectSlice.cpp
+@@ -868,6 +868,75 @@ void apply_fuzzy_skin_segmentation(PrintObject &print_object, ThrowOnCancel thro
+ // Resulting expolygons of layer regions are marked as Internal.
+ //
+ // this should be idempotent
++// Make overhangs printable, ported from OrcaSlicer's PrintObject::apply_conical_overhang(), which ports
++// CuraEngine's ConicalOverhang. From the top down, each layer gets the layer above it, shrunk by how far an
++// overhang at the maximum angle may reach over one layer, so steeper overhangs become slopes of material.
++void PrintObject::apply_conical_overhang()
++{
++    if (m_layers.empty())
++        return;
++    const double angle = m_config.make_overhang_printable_angle.value;
++    if (angle >= 90.)
++        return;
++    BOOST_LOG_TRIVIAL(debug) << "Slicing volumes - make overhangs printable";
++    const double tan_angle            = std::tan(angle * M_PI / 180.);
++    const double scaled_max_hole_area = scale_(scale_(m_config.make_overhang_printable_hole_size.value));
++
++    for (auto it = m_layers.rbegin() + 1; it != m_layers.rend(); ++ it) {
++        m_print->throw_if_canceled();
++        Layer *layer       = *it;
++        Layer *upper_layer = layer->upper_layer;
++        if (upper_layer == nullptr || upper_layer->empty())
++            continue;
++        // Skip layers where every region has it off.
++        if (std::all_of(layer->m_regions.begin(), layer->m_regions.end(),
++                        [](const LayerRegion *r) { return r->slices().empty() || !r->region().config().make_overhang_printable; }))
++            continue;
++
++        // Whole layers are offset, so the model does not break where regions meet.
++        ExPolygons upper_poly   = union_ex(upper_layer->merged(float(SCALED_EPSILON)));
++        ExPolygons current_poly = union_ex(layer->merged(float(SCALED_EPSILON)));
++
++        // Holes in the base of the model up to the given area keep their opening: a hole the layer above
++        // covers completely is the top of such a hole, and is cut from the layer above before it is added.
++        if (scaled_max_hole_area > 0.) {
++            for (const ExPolygon &layer_polygon : current_poly)
++                for (const Polygon &hole : layer_polygon.holes)
++                    if (std::abs(hole.area()) < scaled_max_hole_area) {
++                        const ExPolygon hole_poly(hole);
++                        const ExPolygons hole_with_above = intersection_ex(upper_poly, hole_poly);
++                        if (! hole_with_above.empty() && xor_ex(hole_with_above, hole_poly).empty())
++                            upper_poly = diff_ex(upper_poly, ExPolygons{ hole_poly });
++                    }
++        }
++
++        // How far the layer above may overhang this one; the layer's own height, so variable layer
++        // heights keep the angle.
++        upper_poly = offset_ex(upper_poly, -float(scale_(tan_angle * upper_layer->height)));
++
++        for (size_t region_id = 0; region_id < this->num_printing_regions(); ++ region_id) {
++            if (! upper_layer->m_regions[region_id]->region().config().make_overhang_printable)
++                continue;
++            // The part of the shrunk layer above that belongs to this region.
++            ExPolygons p = union_ex(intersection_ex(upper_layer->m_regions[region_id]->slices().surfaces, upper_poly));
++            // Islands this layer already covers add nothing.
++            p.erase(std::remove_if(p.begin(), p.end(), [&current_poly](const ExPolygon &ex) { return diff_ex(ex, current_poly).empty(); }),
++                    p.end());
++            if (p.empty())
++                continue;
++            ExPolygons layer_polygons = to_expolygons(layer->m_regions[region_id]->slices().surfaces);
++            layer->m_regions[region_id]->m_slices.set(union_ex(layer_polygons, p), stInternal);
++            // And taken out of the other regions, so they do not overlap.
++            for (size_t other_region = 0; other_region < this->num_printing_regions(); ++ other_region) {
++                if (other_region == region_id)
++                    continue;
++                ExPolygons s = to_expolygons(layer->m_regions[other_region]->slices().surfaces);
++                layer->m_regions[other_region]->m_slices.set(diff_ex(s, p, ApplySafetyOffset::Yes), stInternal);
++            }
++        }
++    }
++}
++
+ void PrintObject::slice_volumes()
+ {
+     BOOST_LOG_TRIVIAL(info) << "Slicing volumes..." << log_memory_info();
+@@ -908,6 +977,8 @@ void PrintObject::slice_volumes()
+         m_layers.back()->upper_layer = nullptr;
+     m_print->throw_if_canceled();
+ 
++    this->apply_conical_overhang();
++
+     // Is any ModelVolume multi-material painted?
+     if (m_print->config().nozzle_diameter.size() > 1 && this->model_object()->is_mm_painted()) {
+         // If XY Size compensation is also enabled, notify the user that XY Size compensation

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stacked print layers under a nozzle; single-color shapes so it also works as a themed icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#8B5000" android:pathData="M42,30h24l-4,10h-16z" />
+    <path android:fillColor="#8B5000" android:pathData="M51,40h6v6h-6z" />
+    <path android:fillColor="#8B5000" android:pathData="M30,52h48v6h-48z" />
+    <path android:fillColor="#8B5000" android:pathData="M32,62h44v6h-44z" />
+    <path android:fillColor="#8B5000" android:pathData="M34,72h40v6h-40z" />
+</vector>

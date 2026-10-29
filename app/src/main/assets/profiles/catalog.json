@@ -1,0 +1,3098 @@
+[
+ {
+  "id": "AnycubicKobra3",
+  "name": "Anycubic Kobra 3 (AndSlice)",
+  "file": "AnycubicKobra3.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "KOBRA3",
+    "name": "Anycubic Kobra 3",
+    "family": "KOBRA",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "KOBRA3COMBO",
+    "name": "Anycubic Kobra 3 Combo (ACE Pro)",
+    "family": "KOBRA",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Anker",
+  "name": "AnkerMake",
+  "file": "vendors/Anker.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "M5",
+    "name": "AnkerMake M5",
+    "family": "AnkerMake",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "M5C",
+    "name": "AnkerMake M5C",
+    "family": "AnkerMake",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Anycubic",
+  "name": "Anycubic",
+  "file": "vendors/Anycubic.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "AKLP",
+    "name": "Anycubic Kossel Linear Plus",
+    "family": "KOSSEL",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "AK",
+    "name": "Anycubic Kossel Pulley (Linear)",
+    "family": "KOSSEL",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "MEGA0",
+    "name": "Anycubic Mega Zero",
+    "family": "MEGA",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "I3MEGA",
+    "name": "Anycubic i3 Mega",
+    "family": "MEGA",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "I3MEGAS",
+    "name": "Anycubic i3 Mega S",
+    "family": "MEGA",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "4MAXPRO20",
+    "name": "Anycubic 4Max Pro 2.0",
+    "family": "4Max",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "PREDATOR",
+    "name": "Anycubic Predator",
+    "family": "PREDATOR",
+    "variants": [
+     "0.4",
+     "0.6",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Artillery",
+  "name": "Artillery",
+  "file": "vendors/Artillery.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "X1",
+    "name": "Artillery Sidewinder X1",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Genius",
+    "name": "Artillery Genius",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Hornet",
+    "name": "Artillery Hornet",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "X3 Plus",
+    "name": "Artillery Sidewinder X3 Plus",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "X3 Pro",
+    "name": "Artillery Sidewinder X3 Pro",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "X4 Plus",
+    "name": "Artillery Sidewinder X4 Plus",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "X4 Pro",
+    "name": "Artillery Sidewinder X4 Pro",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "X4 Max",
+    "name": "Artillery Sidewinder X4 Max",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "BIBO",
+  "name": "BIBO",
+  "file": "vendors/BIBO.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "BIBO2",
+    "name": "BIBO2 Touch",
+    "family": "BIBO2",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "BIQU",
+  "name": "BIQU",
+  "file": "vendors/BIQU.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "BIQUBX",
+    "name": "BIQU BX",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "CocoaPress",
+  "name": "Cocoa Press",
+  "file": "vendors/CocoaPress.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "Cocoa_Press",
+    "name": "Cocoa Press",
+    "family": "",
+    "variants": [
+     "0.8",
+     "1.6"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Creality",
+  "name": "Creality",
+  "file": "vendors/Creality.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "ENDER3",
+    "name": "Creality Ender-3",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3BLTOUCH",
+    "name": "Creality Ender-3 BLTouch",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3PRO",
+    "name": "Creality Ender-3 Pro",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3NEO",
+    "name": "Creality Ender-3 Neo",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3V2",
+    "name": "Creality Ender-3 V2",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3V2NEO",
+    "name": "Creality Ender-3 V2 Neo",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3S1",
+    "name": "Creality Ender-3 S1",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3S1PRO",
+    "name": "Creality Ender-3 S1 Pro",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3S1PLUS",
+    "name": "Creality Ender-3 S1 Plus",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3MAX",
+    "name": "Creality Ender-3 Max",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER3MAXNEO",
+    "name": "Creality Ender-3 Max Neo",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER4",
+    "name": "Creality Ender-4",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER5",
+    "name": "Creality Ender-5",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER5PRO",
+    "name": "Creality Ender-5 Pro",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER5PLUS",
+    "name": "Creality Ender-5 Plus",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER5S1",
+    "name": "Creality Ender-5 S1",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER6",
+    "name": "Creality Ender-6",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER7",
+    "name": "Creality Ender-7",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER2",
+    "name": "Creality Ender-2",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "ENDER2PRO",
+    "name": "Creality Ender-2 Pro",
+    "family": "ENDER",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR5PRO",
+    "name": "Creality CR-5 Pro",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR5PROH",
+    "name": "Creality CR-5 Pro H",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR6SE",
+    "name": "Creality CR-6 SE",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR6MAX",
+    "name": "Creality CR-6 Max",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10SMART",
+    "name": "Creality CR-10 SMART",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10SMARTPRO",
+    "name": "Creality CR-10 SMART Pro",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10MINI",
+    "name": "Creality CR-10 Mini",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10MAX",
+    "name": "Creality CR-10 Max",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10",
+    "name": "Creality CR-10",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10V2",
+    "name": "Creality CR-10 V2",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10V3",
+    "name": "Creality CR-10 V3",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10S",
+    "name": "Creality CR-10 S",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10SPRO",
+    "name": "Creality CR-10 S Pro",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10SPROV2",
+    "name": "Creality CR-10 S Pro V2",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10S4",
+    "name": "Creality CR-10 S4",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR10S5",
+    "name": "Creality CR-10 S5",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR20",
+    "name": "Creality CR-20",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR20PRO",
+    "name": "Creality CR-20 Pro",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR200B",
+    "name": "Creality CR-200B",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "CR8",
+    "name": "Creality CR-8",
+    "family": "CR",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "SERMOOND1",
+    "name": "Creality Sermoon-D1",
+    "family": "SERMOON",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "SERMOONV1",
+    "name": "Creality Sermoon-V1",
+    "family": "SERMOON",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "SERMOONV1PRO",
+    "name": "Creality Sermoon-V1 Pro",
+    "family": "SERMOON",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.5",
+     "0.6"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "E2D",
+  "name": "E2D",
+  "file": "vendors/E2D.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "i311",
+    "name": "E2D i311",
+    "family": "i3",
+    "variants": [
+     "0.4",
+     "0.3"
+    ]
+   },
+   {
+    "id": "i310",
+    "name": "E2D i310",
+    "family": "i3",
+    "variants": [
+     "0.4",
+     "0.3"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Elegoo",
+  "name": "Elegoo",
+  "file": "vendors/Elegoo.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "NEPTUNE1",
+    "name": "Elegoo Neptune-1",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "NEPTUNE2",
+    "name": "Elegoo Neptune-2",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "NEPTUNE2D",
+    "name": "Elegoo Neptune-2D",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "NEPTUNE2S",
+    "name": "Elegoo Neptune-2S",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "NEPTUNE3",
+    "name": "Elegoo Neptune-3",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "NEPTUNE3MAX",
+    "name": "Elegoo Neptune-3 Max",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "NEPTUNE3PLUS",
+    "name": "Elegoo Neptune-3 Plus",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "NEPTUNE3PRO",
+    "name": "Elegoo Neptune-3 Pro",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "NEPTUNEX",
+    "name": "Elegoo Neptune-X",
+    "family": "NEPTUNE",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "FLSun",
+  "name": "FLSun",
+  "file": "vendors/FLSun.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "QQSP",
+    "name": "FLSun QQS Pro",
+    "family": "",
+    "variants": [
+     "0.4",
+     "0.6"
+    ]
+   },
+   {
+    "id": "Q5",
+    "name": "FLSun Q5",
+    "family": "",
+    "variants": [
+     "0.4",
+     "0.6"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "gCreate",
+  "name": "gCreate",
+  "file": "vendors/gCreate.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "GMAX15P",
+    "name": "gMax 1.5XT Plus",
+    "family": "GMAX",
+    "variants": [
+     "0.5",
+     "0.3",
+     "0.4",
+     "0.8",
+     "1.0"
+    ]
+   },
+   {
+    "id": "GMAX2",
+    "name": "gMax 2",
+    "family": "GMAX",
+    "variants": [
+     "0.5",
+     "0.3",
+     "0.4",
+     "0.8",
+     "1.0"
+    ]
+   },
+   {
+    "id": "GMAX2PRO",
+    "name": "gMax 2 Pro",
+    "family": "GMAX",
+    "variants": [
+     "0.5",
+     "0.3",
+     "0.4",
+     "0.8",
+     "1.0"
+    ]
+   },
+   {
+    "id": "GMAX2DUAL2IN1",
+    "name": "gMax 2 Dual 2in1",
+    "family": "GMAX",
+    "variants": [
+     "0.5"
+    ]
+   },
+   {
+    "id": "GMAX2DUAL",
+    "name": "gMax 2 Dual Chimera",
+    "family": "GMAX",
+    "variants": [
+     "0.5"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Geeetech",
+  "name": "Geeetech",
+  "file": "vendors/Geeetech.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "Thunder",
+    "name": "Geeetech Thunder",
+    "family": "Thunder",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "ThunderPro",
+    "name": "Geeetech Thunder Pro",
+    "family": "Thunder",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MizarS",
+    "name": "Geeetech Mizar S",
+    "family": "Mizar",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MizarPro",
+    "name": "Geeetech Mizar Pro",
+    "family": "Mizar",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Mizar",
+    "name": "Geeetech Mizar",
+    "family": "Mizar",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MizarMax",
+    "name": "Geeetech Mizar Max",
+    "family": "Mizar",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MizarM",
+    "name": "Geeetech Mizar M",
+    "family": "Mizar",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "A10Pro",
+    "name": "Geeetech A10 Pro",
+    "family": "A10",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "A10M",
+    "name": "Geeetech A10 M",
+    "family": "A10",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "A10T",
+    "name": "Geeetech A10 T",
+    "family": "A10",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "A20",
+    "name": "Geeetech A20",
+    "family": "A20",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "A20M",
+    "name": "Geeetech A20 M",
+    "family": "A20",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "A20T",
+    "name": "Geeetech A20 T",
+    "family": "A20",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "A30Pro",
+    "name": "Geeetech A30 Pro",
+    "family": "A30",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "A30M",
+    "name": "Geeetech A30 M",
+    "family": "A30",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "A30T",
+    "name": "Geeetech A30 T",
+    "family": "A30",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "E180",
+    "name": "Geeetech E180",
+    "family": "E180",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MeDucer",
+    "name": "Geeetech Me Ducer",
+    "family": "Me",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MeCreator",
+    "name": "Geeetech Me Creator",
+    "family": "Me",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MeCreator2",
+    "name": "Geeetech Me Creator2",
+    "family": "Me",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "GiantArmD200",
+    "name": "Geeetech GiantArmD200",
+    "family": "D200",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "I3ProB",
+    "name": "Geeetech I3 ProB",
+    "family": "I3",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "I3ProW",
+    "name": "Geeetech I3 ProW",
+    "family": "I3",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "I3ProC",
+    "name": "Geeetech I3 ProC",
+    "family": "I3",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "M1",
+    "name": "Geeetech M1",
+    "family": "M1",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "HartSmartProducts",
+  "name": "HartSmart Products",
+  "file": "vendors/HartSmartProducts.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "HSP1-I",
+    "name": "HSP1-I",
+    "family": "HSP1",
+    "variants": [
+     "0.6",
+     "0.4",
+     "0.8",
+     "1.0"
+    ]
+   },
+   {
+    "id": "HSP1-I Duplicator Mode",
+    "name": "HSP1-I Duplicator Mode",
+    "family": "HSP1",
+    "variants": [
+     "0.6",
+     "0.4",
+     "0.8",
+     "1.0"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "INAT",
+  "name": "INAT",
+  "file": "vendors/INAT.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "PROTON_X_RAIL",
+    "name": "INAT Proton X Rail",
+    "family": "Proton",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "PROTON_X_ROD",
+    "name": "INAT Proton X Rod",
+    "family": "Proton",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "PROTON_XE750",
+    "name": "INAT Proton XE-750",
+    "family": "Proton",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Infinity3D",
+  "name": "Infinity3D",
+  "file": "vendors/Infinity3D.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "DEV-200",
+    "name": "Infinity3D DEV-200",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "DEV-350",
+    "name": "Infinity3D DEV-350",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Jubilee",
+  "name": "Jubilee",
+  "file": "vendors/Jubilee.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "Jubilee",
+    "name": "Jubilee",
+    "family": "",
+    "variants": [
+     "0.4",
+     "Volcano 0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "LNL3D",
+  "name": "LNL3D",
+  "file": "vendors/LNL3D.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "LNL3D_D3",
+    "name": "LNL3D D3",
+    "family": "LNL3D Small Printer",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "LNL3D_D3_VULCAN",
+    "name": "LNL3D D3 Vulcan",
+    "family": "LNL3D Small Printer",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "LNL3D_D3_V2",
+    "name": "LNL3D D3 V2",
+    "family": "LNL3D Small Printer",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "LNL3D_D5",
+    "name": "LNL3D D5",
+    "family": "LNL3D Big Printer",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "LNL3D_D6",
+    "name": "LNL3D D6",
+    "family": "LNL3D Big Printer",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "LulzBot",
+  "name": "LulzBot",
+  "file": "vendors/LulzBot.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "MINI_AERO",
+    "name": "Mini Aero",
+    "family": "",
+    "variants": [
+     "0.5"
+    ]
+   },
+   {
+    "id": "TAZ6_AERO",
+    "name": "Taz6 Aero",
+    "family": "",
+    "variants": [
+     "0.5"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "MakerGear",
+  "name": "MakerGear",
+  "file": "vendors/MakerGear.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "MAKERGEAR_MICRO",
+    "name": "Micro",
+    "family": "MakerGear Micro",
+    "variants": [
+     "0.40"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_M2",
+    "name": "MakerGear M2(V4 Hotend)",
+    "family": "MakerGear M2",
+    "variants": [
+     "0.35",
+     "0.50",
+     "0.25",
+     "0.75"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_M2_DUAL",
+    "name": "MakerGear M2 Dual",
+    "family": "MakerGear M2",
+    "variants": [
+     "0.35",
+     "0.50",
+     "0.25",
+     "0.75"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_M3_SE",
+    "name": "M3 - Single Extruder",
+    "family": "MakerGear M3-SE",
+    "variants": [
+     "0.35",
+     "0.50",
+     "0.25",
+     "0.75"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_M3_ID_0",
+    "name": "M3 - Independent Dual Rev.0",
+    "family": "MakerGear M3-ID Rev.0",
+    "variants": [
+     "0.35",
+     "0.50",
+     "0.25",
+     "0.75"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_M3_ID_0_DUPLICATION",
+    "name": "M3 - Independent Dual Rev.0 (Duplication Mode)",
+    "family": "MakerGear M3-ID Rev.0",
+    "variants": [
+     "0.35",
+     "0.50",
+     "0.25",
+     "0.75"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_M3_ID_1",
+    "name": "M3 - Independent Dual Rev.1",
+    "family": "MakerGear M3-ID Rev.1",
+    "variants": [
+     "0.35",
+     "0.50",
+     "0.25",
+     "0.75"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_M3_ID_1_DUPLICATION",
+    "name": "M3 - Independent Dual Rev.1 (Duplication Mode)",
+    "family": "MakerGear M3-ID Rev.1",
+    "variants": [
+     "0.35",
+     "0.50",
+     "0.25",
+     "0.75"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_U1",
+    "name": "Ultra One",
+    "family": "MakerGear Ultra One",
+    "variants": [
+     "0.50",
+     "0.25",
+     "0.35",
+     "0.75"
+    ]
+   },
+   {
+    "id": "MAKERGEAR_U1_DUPLICATION",
+    "name": "Ultra One (Duplication Mode)",
+    "family": "MakerGear Ultra One",
+    "variants": [
+     "0.50",
+     "0.25",
+     "0.35",
+     "0.75"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "PapapiuLab",
+  "name": "Papapiu",
+  "file": "vendors/PapapiuLab.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "Papapiu_N1S",
+    "name": "Papapiu N1S",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Print4Taste",
+  "name": "Print4Taste",
+  "file": "vendors/Print4Taste.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "MC2.0",
+    "name": "mycusini 2.0",
+    "family": "mycusini",
+    "variants": [
+     "1.0"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "PrusaResearch",
+  "name": "Prusa Research",
+  "file": "vendors/PrusaResearch.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "COREONEL",
+    "name": "Prusa CORE One L",
+    "family": "CORE",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "COREONELMMU3",
+    "name": "Prusa CORE One L MMU3",
+    "family": "CORE",
+    "variants": [
+     "0.4",
+     "0.6",
+     "HF0.4"
+    ]
+   },
+   {
+    "id": "COREONE",
+    "name": "Prusa CORE One && CORE One+",
+    "family": "CORE",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "COREONEMMU3",
+    "name": "Prusa CORE One && CORE One+ MMU3",
+    "family": "CORE",
+    "variants": [
+     "0.4",
+     "0.6",
+     "HF0.4"
+    ]
+   },
+   {
+    "id": "COREONEOAK",
+    "name": "Prusa Signature Oak",
+    "family": "CORE",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK4S",
+    "name": "Original Prusa MK4S",
+    "family": "MK4",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK4SMMU3",
+    "name": "Original Prusa MK4S MMU3",
+    "family": "MK4",
+    "variants": [
+     "0.4",
+     "0.6",
+     "HF0.4"
+    ]
+   },
+   {
+    "id": "MK4IS",
+    "name": "Original Prusa MK4 Input Shaper",
+    "family": "MK4",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8"
+    ]
+   },
+   {
+    "id": "MK4ISMMU3",
+    "name": "Original Prusa MK4 MMU3",
+    "family": "MK4",
+    "variants": [
+     "0.4",
+     "0.6",
+     "HF0.4"
+    ]
+   },
+   {
+    "id": "MK3.9S",
+    "name": "Original Prusa MK3.9S",
+    "family": "MK3.9",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK3.9SMMU3",
+    "name": "Original Prusa MK3.9S MMU3",
+    "family": "MK3.9",
+    "variants": [
+     "0.4",
+     "0.6",
+     "HF0.4"
+    ]
+   },
+   {
+    "id": "MK3.9",
+    "name": "Original Prusa MK3.9 Input Shaper",
+    "family": "MK3.9",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8"
+    ]
+   },
+   {
+    "id": "MK3.9MMU3",
+    "name": "Original Prusa MK3.9 MMU3",
+    "family": "MK3.9",
+    "variants": [
+     "0.4",
+     "0.6",
+     "HF0.4"
+    ]
+   },
+   {
+    "id": "MK3.5",
+    "name": "Original Prusa MK3.5 && MK3.5S",
+    "family": "MK3.5",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK3.5MMU3",
+    "name": "Original Prusa MK3.5 && MK3.5S MMU3",
+    "family": "MK3.5",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6"
+    ]
+   },
+   {
+    "id": "MINIIS",
+    "name": "Original Prusa MINI && MINI+ Input Shaper",
+    "family": "MINI",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK3S",
+    "name": "Original Prusa i3 MK3S && MK3S+",
+    "family": "MK3",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK3",
+    "name": "Original Prusa i3 MK3",
+    "family": "MK3",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK3SMMU3",
+    "name": "Original Prusa i3 MK3S && MK3S+ MMU3",
+    "family": "MK3",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK3SMMU2S",
+    "name": "Original Prusa i3 MK3S && MK3S+ MMU2S",
+    "family": "MK3",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK3MMU2",
+    "name": "Original Prusa i3 MK3 MMU2",
+    "family": "MK3",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "XLIS",
+    "name": "Original Prusa XL Input Shaper",
+    "family": "XL Single-Tool",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8"
+    ]
+   },
+   {
+    "id": "XL2IS",
+    "name": "Original Prusa XL - 2T Input Shaper",
+    "family": "XL Multi-Tool",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8"
+    ]
+   },
+   {
+    "id": "XL5IS",
+    "name": "Original Prusa XL - 5T Input Shaper",
+    "family": "XL Multi-Tool",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8"
+    ]
+   },
+   {
+    "id": "MK2.5S",
+    "name": "Original Prusa i3 MK2.5S",
+    "family": "MK2.5",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK2.5",
+    "name": "Original Prusa i3 MK2.5",
+    "family": "MK2.5",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK2.5SMMU2S",
+    "name": "Original Prusa i3 MK2.5S MMU2S",
+    "family": "MK2.5",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK2.5MMU2",
+    "name": "Original Prusa i3 MK2.5 MMU2",
+    "family": "MK2.5",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MK2S",
+    "name": "Original Prusa i3 MK2S",
+    "family": "MK2",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6"
+    ]
+   },
+   {
+    "id": "MK2SMM",
+    "name": "Original Prusa i3 MK2S MMU1",
+    "family": "MK2",
+    "variants": [
+     "0.4",
+     "0.6"
+    ]
+   },
+   {
+    "id": "MK4",
+    "name": "Original Prusa MK4",
+    "family": "Legacy profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "MINI",
+    "name": "Original Prusa MINI && MINI+",
+    "family": "Legacy profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "XL",
+    "name": "Original Prusa XL",
+    "family": "Legacy profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "XL2",
+    "name": "Original Prusa XL - 2T",
+    "family": "Legacy profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "XL5",
+    "name": "Original Prusa XL - 5T",
+    "family": "Legacy profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "QIDITechnology",
+  "name": "QIDITechnology",
+  "file": "vendors/QIDITechnology.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "X-Plus 4",
+    "name": "X-Plus 4",
+    "family": "X 4",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "X-Plus 4 + BOX",
+    "name": "X-Plus 4 + BOX",
+    "family": "X 4",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Q1 Pro",
+    "name": "Q1 Pro",
+    "family": "Q",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "X-MAX 3",
+    "name": "X-MAX 3",
+    "family": "X 3",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "X-Plus 3",
+    "name": "X-Plus 3",
+    "family": "X 3",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "X-smart 3",
+    "name": "X-smart 3",
+    "family": "X 3",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "RatRig",
+  "name": "RatRig",
+  "file": "vendors/RatRig.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "VC4_300 COREXY",
+    "name": "RatRig V-Core-4.0 CoreXY 300mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC4_400 COREXY",
+    "name": "RatRig V-Core-4.0 CoreXY 400mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC4_500 COREXY",
+    "name": "RatRig V-Core-4.0 CoreXY 500mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC4_300 HYBRID",
+    "name": "RatRig V-Core-4.0 HYBRID 300mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC4_400 HYBRID",
+    "name": "RatRig V-Core-4.0 HYBRID 400mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC4_500 HYBRID",
+    "name": "RatRig V-Core-4.0 HYBRID 500mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC4_300 IDEX",
+    "name": "RatRig V-Core-4.0 IDEX 300mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC4_400 IDEX",
+    "name": "RatRig V-Core-4.0 IDEX 400mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC4_500 IDEX",
+    "name": "RatRig V-Core-4.0 IDEX 500mm",
+    "family": "V-Core-4",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC3_300",
+    "name": "RatRig V-Core-3.1 300mm",
+    "family": "V-Core-3",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC3_400",
+    "name": "RatRig V-Core-3.1 400mm",
+    "family": "V-Core-3",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VC3_500",
+    "name": "RatRig V-Core-3.1 500mm",
+    "family": "V-Core-3",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   },
+   {
+    "id": "VMINION",
+    "name": "RatRig V-Minion",
+    "family": "V-Minion",
+    "variants": [
+     "0.4",
+     "0.5",
+     "0.6"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Rigid3D",
+  "name": "Rigid3D",
+  "file": "vendors/Rigid3D.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "Zero2",
+    "name": "Rigid3D Zero2",
+    "family": "Zero",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Zero3",
+    "name": "Rigid3D Zero3",
+    "family": "Zero",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Mucit",
+    "name": "Rigid3D Mucit",
+    "family": "Mucit",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Mucit2",
+    "name": "Rigid3D Mucit2",
+    "family": "Mucit",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Snapmaker",
+  "name": "Snapmaker",
+  "file": "vendors/Snapmaker.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "Snapmaker J1",
+    "name": "Snapmaker J1",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A250",
+    "name": "Snapmaker A250",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A350",
+    "name": "Snapmaker A350",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A250 Dual",
+    "name": "Snapmaker A250 Dual",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A350 Dual",
+    "name": "Snapmaker A350 Dual",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A250 QSKit",
+    "name": "Snapmaker A250 QSKit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A350 QSKit",
+    "name": "Snapmaker A350 QSKit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A250 BKit",
+    "name": "Snapmaker A250 BKit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A350 BKit",
+    "name": "Snapmaker A350 BKit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A250 QS+B Kit",
+    "name": "Snapmaker A250 QS+B Kit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A350 QS+B Kit",
+    "name": "Snapmaker A350 QS+B Kit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A250 Dual QSKit",
+    "name": "Snapmaker A250 Dual QSKit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A350 Dual QSKit",
+    "name": "Snapmaker A350 Dual QSKit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A250 Dual BKit",
+    "name": "Snapmaker A250 Dual BKit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A350 Dual BKit",
+    "name": "Snapmaker A350 Dual BKit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A250 Dual QS+B Kit",
+    "name": "Snapmaker A250 Dual QS+B Kit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker A350 Dual QS+B Kit",
+    "name": "Snapmaker A350 Dual QS+B Kit",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Snapmaker Artisan",
+    "name": "Snapmaker Artisan",
+    "family": "Snapmaker",
+    "variants": [
+     "0.4",
+     "0.2",
+     "0.6",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Sovol",
+  "name": "Sovol",
+  "file": "vendors/Sovol.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "SV06",
+    "name": "SV06",
+    "family": "SV",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "SV06 PLUS",
+    "name": "SV06 PLUS",
+    "family": "SV",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "SV05",
+    "name": "SV05",
+    "family": "SV",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "SV04",
+    "name": "SV04",
+    "family": "SV",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "SV03",
+    "name": "SV03 / SV03 BLTOUCH",
+    "family": "SV",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "SV02",
+    "name": "SV02 / SV02 BLTOUCH",
+    "family": "SV",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "SV01",
+    "name": "SV01 / SV01 BLTOUCH",
+    "family": "SV",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "SV01 PRO",
+    "name": "SV01 PRO",
+    "family": "SV",
+    "variants": [
+     "0.4",
+     "0.3",
+     "0.6",
+     "0.8"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Templates",
+  "name": "Templates",
+  "file": "vendors/Templates.ini",
+  "templates": true,
+  "models": []
+ },
+ {
+  "id": "TriLAB",
+  "name": "TriLAB",
+  "file": "vendors/TriLAB.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "AQI",
+    "name": "AzteQ Industrial",
+    "family": "AzteQ",
+    "variants": [
+     "0.4",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "AQD",
+    "name": "AzteQ Dynamic",
+    "family": "AzteQ",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "DQ2",
+    "name": "DeltiQ 2",
+    "family": "DeltiQ 2",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "DQ2P",
+    "name": "DeltiQ 2 Plus",
+    "family": "DeltiQ 2",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "DQ2+FP2",
+    "name": "DeltiQ 2 + FlexPrint 2",
+    "family": "DeltiQ 2",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "DQ2P+FP2",
+    "name": "DeltiQ 2 Plus + FlexPrint 2",
+    "family": "DeltiQ 2",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "DQ2+FP",
+    "name": "DeltiQ 2 + FlexPrint",
+    "family": "DeltiQ 2",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "DQ2P+FP",
+    "name": "DeltiQ 2 Plus + FlexPrint",
+    "family": "DeltiQ 2",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "DQM",
+    "name": "DeltiQ M",
+    "family": "DeltiQ",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "DQL",
+    "name": "DeltiQ L",
+    "family": "DeltiQ",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "DQXL",
+    "name": "DeltiQ XL",
+    "family": "DeltiQ",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Trimaker",
+  "name": "Trimaker",
+  "file": "vendors/Trimaker.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "Trimaker Nebula Cloud",
+    "name": "Trimaker Nebula Cloud",
+    "family": "Nebula",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Trimaker Cosmos II",
+    "name": "Trimaker Cosmos II",
+    "family": "Cosmos",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Trimaker Nebula ",
+    "name": "Trimaker Nebula",
+    "family": "Nebula",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Ultimaker",
+  "name": "Ultimaker",
+  "file": "vendors/Ultimaker.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "ULTIMAKER2",
+    "name": "Ultimaker 2",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "ULTIMAKERSline",
+    "name": "Ultimaker S-line",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Voron",
+  "name": "Voron",
+  "file": "vendors/Voron.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "V2_250",
+    "name": "VORON2 250mm",
+    "family": "VORON2",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "V2_300",
+    "name": "VORON2 300mm",
+    "family": "VORON2",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "V2_350",
+    "name": "VORON2 350mm",
+    "family": "VORON2",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "VT_250",
+    "name": "VORON Trident 250mm",
+    "family": "VORON Trident",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "VT_300",
+    "name": "VORON Trident 300mm",
+    "family": "VORON Trident",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "VT_350",
+    "name": "VORON Trident 350mm",
+    "family": "VORON Trident",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "V0_120",
+    "name": "VORON Zero",
+    "family": "VORON Zero",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "VS_MK52",
+    "name": "VORON Switchwire",
+    "family": "VORON Switchwire",
+    "variants": [
+     "HF0.4",
+     "HF0.5",
+     "HF0.6",
+     "HF0.8",
+     "0.25",
+     "0.3",
+     "0.4",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Voron_v2_250_afterburner",
+    "name": "VORON2 250mm (Afterburner)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   },
+   {
+    "id": "Voron_v2_300_afterburner",
+    "name": "VORON2 300mm (Afterburner)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   },
+   {
+    "id": "Voron_v2_350_afterburner",
+    "name": "VORON2 350mm (Afterburner)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   },
+   {
+    "id": "Voron_v2_250",
+    "name": "VORON2 250mm (Mobius)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   },
+   {
+    "id": "Voron_v2_300",
+    "name": "VORON2 300mm (Mobius)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   },
+   {
+    "id": "Voron_v2_350",
+    "name": "VORON2 350mm (Mobius)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   },
+   {
+    "id": "Voron_v1_250_afterburner",
+    "name": "VORON1 250mm (Afterburner)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Voron_v1_300_afterburner",
+    "name": "VORON1 300mm (Afterburner)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Voron_v1_350_afterburner",
+    "name": "VORON1 350mm (Afterburner)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8"
+    ]
+   },
+   {
+    "id": "Voron_v0_120",
+    "name": "VORON Zero (MiniAB)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   },
+   {
+    "id": "Voron_SW_afterburner",
+    "name": "VORON Switchwire (Afterburner)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   },
+   {
+    "id": "Voron_SW",
+    "name": "VORON Switchwire (Mobius)",
+    "family": "Historical Profiles",
+    "variants": [
+     "0.4",
+     "0.25",
+     "0.3",
+     "0.5",
+     "0.6",
+     "0.8",
+     "volcano 0.6",
+     "volcano 0.8",
+     "volcano 1.0",
+     "volcano 1.2"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "Zonestar",
+  "name": "Zonestar",
+  "file": "vendors/Zonestar.ini",
+  "templates": false,
+  "models": [
+   {
+    "id": "Z5",
+    "name": "Zonestar Z5",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Z6",
+    "name": "Zonestar Z6",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Z5X",
+    "name": "Zonestar Z5X",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Z8",
+    "name": "Zonestar Z8",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   },
+   {
+    "id": "Z9",
+    "name": "Zonestar Z9",
+    "family": "",
+    "variants": [
+     "0.4"
+    ]
+   }
+  ]
+ }
+]

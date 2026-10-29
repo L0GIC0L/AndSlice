@@ -1,0 +1,544 @@
+package io.github.l0gic0l.andslice
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import io.github.l0gic0l.andslice.engine.NativeEngine
+import io.github.l0gic0l.andslice.engine.OptionDefs
+import io.github.l0gic0l.andslice.engine.PaintBrush
+import io.github.l0gic0l.andslice.engine.PaintMode
+import io.github.l0gic0l.andslice.engine.PaintState
+import io.github.l0gic0l.andslice.engine.PlateObject
+import io.github.l0gic0l.andslice.engine.PresetLists
+import io.github.l0gic0l.andslice.engine.SliceResult
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+
+/** Runs the real native slicer on the device with the bundled Kobra 3 profile. */
+@RunWith(AndroidJUnit4::class)
+class EngineTest {
+    private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    private val dir = File(context.cacheDir, "engine-test")
+    private lateinit var presets: PresetLists
+
+    @Before
+    fun setUp() {
+        dir.deleteRecursively()
+        dir.mkdirs()
+        NativeEngine.init(File(dir, "data").path, File(dir, "resources").path, bundles(SlicerViewModel.BASE_BUNDLES))
+        presets = PresetLists.parse(NativeEngine.presetsJson(""))
+        NativeEngine.setPrinter(presets.printer)
+        NativeEngine.clearPlate()
+    }
+
+    /** Copies bundles from the assets, as the app does. */
+    private fun bundles(assets: List<String>) = assets.map { asset ->
+        val file = File(dir, asset).apply { parentFile?.mkdirs() }
+        context.assets.open(asset).use { input -> file.outputStream().use { input.copyTo(it) } }
+        file.path
+    }.toTypedArray()
+
+    @Test
+    fun loadsVendorProfilesOnDemand() {
+        assertEquals("", NativeEngine.printerForModel("ENDER3V2NEO", "0.4"))
+        NativeEngine.loadProfiles(bundles(SlicerViewModel.BASE_BUNDLES + "profiles/vendors/Creality.ini"))
+        val preset = NativeEngine.printerForModel("ENDER3V2NEO", "0.4")
+        assertTrue(preset, preset.startsWith("Creality Ender-3 V2 Neo"))
+        val lists = PresetLists.parse(NativeEngine.presetsJson(preset))
+        assertEquals(preset, lists.printer)
+        assertTrue(lists.prints.isNotEmpty())
+        assertTrue(lists.allFilaments.isNotEmpty())
+        // The Kobra 3 keeps its own filaments only.
+        assertTrue(PresetLists.parse(NativeEngine.presetsJson("Anycubic Kobra 3 0.4 nozzle")).templateFilaments.isEmpty())
+    }
+
+    @Test
+    fun savesCustomPrinterAndUserProfiles() {
+        val printer = NativeEngine.savePreset(
+            "printer", "Test printer", SlicerViewModel.CUSTOM_PRINTER_BASE, SlicerViewModel.CUSTOM_PRINT,
+            arrayOf(SlicerViewModel.CUSTOM_FILAMENT), arrayOf("bed_shape", "nozzle_diameter"), arrayOf("0x0,180x0,180x180,0x180", "0.6"),
+        )
+        var lists = PresetLists.parse(NativeEngine.presetsJson(printer))
+        assertEquals(printer, lists.printer)
+        assertTrue(lists.isUser(io.github.l0gic0l.andslice.engine.PresetType.Printer, printer))
+        assertTrue(lists.templateFilaments.contains(SlicerViewModel.CUSTOM_FILAMENT))
+
+        val print = NativeEngine.savePreset(
+            "print", "My print", printer, SlicerViewModel.CUSTOM_PRINT, arrayOf(SlicerViewModel.CUSTOM_FILAMENT),
+            arrayOf("perimeters", "fill_density"), arrayOf("4", "35%"),
+        )
+        val config = org.json.JSONObject(NativeEngine.configJson(printer, print, arrayOf(SlicerViewModel.CUSTOM_FILAMENT)))
+        assertEquals("4", config.getString("perimeters"))
+        assertEquals("35%", config.getString("fill_density"))
+        assertEquals("0x0,180x0,180x180,0x180", config.getString("bed_shape"))
+        lists = PresetLists.parse(NativeEngine.presetsJson(printer))
+        assertTrue(lists.prints.contains(print))
+
+        NativeEngine.deletePreset("print", print)
+        assertTrue(!PresetLists.parse(NativeEngine.presetsJson(printer)).prints.contains(print))
+    }
+
+    @Test
+    fun loadsKobra3Profiles() {
+        assertEquals("Anycubic Kobra 3 0.4 nozzle", presets.printer)
+        assertEquals("0.20mm Standard @Kobra 3 0.4 nozzle", presets.defaultPrint)
+        assertTrue(presets.filaments.contains("Anycubic PETG @Kobra 3"))
+        val defs = OptionDefs.parse(NativeEngine.optionDefsJson())
+        assertTrue(defs.find("fill_density") != null)
+    }
+
+    @Test
+    fun slicesCube() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val objects = PlateObject.parseList(NativeEngine.objectsJson())
+        assertEquals(1, objects.size)
+        assertEquals(10.0, objects[0].offset[2], 1e-6) // resting on the bed
+
+        val out = File(dir, "out").apply { mkdirs() }
+        val progress = mutableListOf<Int>()
+        val result = SliceResult.parse(
+            NativeEngine.slice(
+                presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament),
+                arrayOf("fill_density"), arrayOf("20%"), out.path + "/",
+            ) { percent, _ -> progress.add(percent) }
+        )
+        assertTrue(result.error ?: "", result.ok)
+        assertEquals(100, result.layerZs.size) // 20 mm at 0.2 mm layers
+        assertTrue(progress.isNotEmpty())
+
+        val gcode = File(result.path!!).readText()
+        assertTrue(gcode.contains("G9111 bedTemp=60 extruderTemp=220"))
+        assertTrue(gcode.contains("; fill_density = 20%"))
+        assertTrue(gcode.contains("; thumbnail begin 230x110"))
+        // Single-extruder G-code has no tool changes.
+        assertTrue(Regex("^T\\d", RegexOption.MULTILINE).find(gcode) == null)
+    }
+
+    @Test
+    fun slicesTwoColorsOnTheCombo() {
+        val combo = "Anycubic Kobra 3 Combo 0.4 nozzle"
+        val lists = PresetLists.parse(NativeEngine.presetsJson(combo))
+        assertEquals(4, lists.extruders)
+        NativeEngine.setPrinter(combo)
+        NativeEngine.setWipeTower(true, floatArrayOf(190f, 215f, 45f, 10f, 5f, 20f))
+
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "a")
+        NativeEngine.addModel(stl.path, "b")
+        val objects = PlateObject.parseList(NativeEngine.objectsJson())
+        NativeEngine.setExtruder(objects[1].id, -1, 2)
+        assertEquals(setOf(2), PlateObject.parseList(NativeEngine.objectsJson())[1].extruders)
+
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(
+                combo, lists.defaultPrint, arrayOf("Anycubic PLA @Kobra 3", "Anycubic PLA Matte @Kobra 3"),
+                arrayOf("filament_colour"), arrayOf("#FFFFFF;#FF0000;#00FF00;#0000FF"), out.path + "/", null,
+            )
+        )
+        assertTrue(result.error ?: "", result.ok)
+        assertEquals(listOf(1, 2), result.extrudersUsed)
+        assertTrue(result.wipeTowerDepth > 0)
+
+        // The ACE Pro swaps filament on plain T commands; the wipe tower never resets pressure advance.
+        val gcode = File(result.path!!).readText()
+        assertTrue(gcode.contains(Regex("^T0$", RegexOption.MULTILINE)))
+        assertTrue(gcode.contains(Regex("^T1$", RegexOption.MULTILINE)))
+        assertTrue(!gcode.contains("SET_PRESSURE_ADVANCE"))
+        assertTrue(!gcode.contains(Regex("^M10[49] .*T\\d", RegexOption.MULTILINE)))
+    }
+
+    @Test
+    fun paintsFilamentsAndUndoes() {
+        val combo = "Anycubic Kobra 3 Combo 0.4 nozzle"
+        val lists = PresetLists.parse(NativeEngine.presetsJson(combo))
+        NativeEngine.setPrinter(combo)
+        NativeEngine.setWipeTower(true, floatArrayOf(190f, 215f, 45f, 10f, 5f, 20f))
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+
+        // A dab of filament 2 on top of the cube, as a finger from straight above would paint it.
+        assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.COLORS))
+        val camera = floatArrayOf(cube.offset[0].toFloat(), cube.offset[1].toFloat(), 500f)
+        val brush = PaintBrush(state = 2, radius = 5f, tool = PaintMode.TOOL_BRUSH)
+        assertTrue(NativeEngine.paintAt(camera, floatArrayOf(0f, 0f, -1f), brush.params(), false))
+        NativeEngine.paintCommit()
+        assertTrue(PaintState.parse(NativeEngine.paintStateJson()).canUndo)
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().painted)
+
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(
+                combo, lists.defaultPrint, arrayOf("Anycubic PLA @Kobra 3", "Anycubic PLA Matte @Kobra 3"),
+                emptyArray(), emptyArray(), out.path + "/", null,
+            )
+        )
+        assertTrue(result.error ?: "", result.ok)
+        assertTrue(File(result.path!!).readText().contains(Regex("^T1$", RegexOption.MULTILINE)))
+        // Preview extras: both slots weighed, the time of every layer, and where filament 2 starts.
+        assertEquals(listOf(1, 2), result.slots.map { it.extruder })
+        assertTrue(result.slots.all { it.grams > 0 })
+        assertEquals(result.layerZs.size, result.layerTimes.size)
+        assertEquals(result.printTimeSeconds, result.layerTimes.sum(), result.printTimeSeconds * 0.02)
+        assertTrue(result.filamentChanges.any { 2 in it.tools })
+
+        assertTrue(NativeEngine.paintUndo())
+        NativeEngine.paintEnd()
+        assertTrue(!PlateObject.parseList(NativeEngine.objectsJson()).single().painted)
+    }
+
+    @Test
+    fun paintsSupportsOnOverhangsAndBands() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.SUPPORTS))
+        // The cube's bottom faces straight down, so it is an overhang at any angle.
+        NativeEngine.paintHighlightOverhangs(45f)
+        assertTrue(NativeEngine.paintOverhangs(PaintMode.ENFORCE, 45f))
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+        assertTrue(NativeEngine.paintUndo())
+        assertTrue(!PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+
+        // A 2 mm band of blockers around the height touched from above.
+        val band = PaintBrush(state = PaintMode.BLOCK, radius = 1f, tool = PaintMode.TOOL_HEIGHT, heightRange = 2f)
+        val camera = floatArrayOf(cube.offset[0].toFloat(), cube.offset[1].toFloat(), 500f)
+        assertTrue(NativeEngine.paintAt(camera, floatArrayOf(0f, 0f, -1f), band.params(), false))
+        NativeEngine.paintCommit()
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+        NativeEngine.paintEnd()
+    }
+
+    @Test
+    fun paintsSeamsAndFuzzySkin() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        val camera = floatArrayOf(cube.offset[0].toFloat(), cube.offset[1].toFloat(), 500f)
+        // A 4 mm band around the top of the cube's walls.
+        val band = PaintBrush(state = PaintMode.ENFORCE, radius = 1f, tool = PaintMode.TOOL_HEIGHT, heightRange = 4f)
+        for (mode in listOf(PaintMode.SEAM, PaintMode.FUZZY_SKIN)) {
+            assertTrue(NativeEngine.paintBegin(cube.id, mode))
+            assertTrue(NativeEngine.paintAt(camera, floatArrayOf(0f, 0f, -1f), band.params(), false))
+            NativeEngine.paintCommit()
+            NativeEngine.paintEnd()
+        }
+        val painted = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertTrue(painted.seamPainted)
+        assertTrue(painted.fuzzyPainted)
+
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament), emptyArray(), emptyArray(), out.path + "/", null)
+        )
+        assertTrue(result.error ?: "", result.ok)
+    }
+
+    @Test
+    fun printsCalibrationTowers() {
+        // Temperatures no filament profile uses, so the tower's commands stand out.
+        val temps = Calibration.temperatures(233, 3, 3)
+        val commands = Calibration.temperatureCommands(temps, firstLayer = 0.2, layer = 0.2)
+        val id = org.json.JSONObject(
+            NativeEngine.addCalibration(
+                "temperature_tower", 3, Calibration.SECTION_HEIGHT,
+                commands.map { it.first }.toDoubleArray(), commands.map { it.second }.toTypedArray(),
+            ),
+        ).getJSONArray("ids").getLong(0)
+        val tower = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertEquals(id, tower.id)
+        assertEquals(24.0, tower.size[2], 1e-3)
+
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament), emptyArray(), emptyArray(), out.path + "/", null)
+        )
+        assertTrue(result.error ?: "", result.ok)
+        val gcode = File(result.path!!).readLines()
+        for (t in temps) assertTrue("M104 S$t", gcode.contains("M104 S$t"))
+
+        // Clearing the plate drops the tower's G-code too.
+        NativeEngine.clearPlate()
+        NativeEngine.addModel(File(dir, "cube.stl").apply { writeText(cubeStl(10.0)) }.path, "cube")
+        val plain = SliceResult.parse(
+            NativeEngine.slice(presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament), emptyArray(), emptyArray(), out.path + "/", null)
+        )
+        assertTrue(!File(plain.path!!).readLines().contains("M104 S230"))
+    }
+
+    @Test
+    fun undoesAndRedoesPlateChanges() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        NativeEngine.pushUndo()
+        NativeEngine.removeObject(cube.id)
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).isEmpty())
+        assertTrue(NativeEngine.undo())
+        // Back with the same id, as the app knows it.
+        assertEquals(cube.id, PlateObject.parseList(NativeEngine.objectsJson()).single().id)
+        assertTrue(NativeEngine.redo())
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).isEmpty())
+        assertTrue(NativeEngine.undo())
+
+        // A paint session is one step.
+        assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.SUPPORTS))
+        assertTrue(NativeEngine.paintOverhangs(PaintMode.ENFORCE, 45f))
+        NativeEngine.paintEnd()
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+        assertTrue(NativeEngine.undo())
+        assertTrue(!PlateObject.parseList(NativeEngine.objectsJson()).single().supportPainted)
+        assertTrue(org.json.JSONObject(NativeEngine.undoStateJson()).getBoolean("can_redo"))
+    }
+
+    @Test
+    fun splitsCutsAndMirrors() {
+        // Two cubes side by side in one file: one object until it is split.
+        val stl = File(dir, "two.stl").apply { writeText("solid two\n" + cubeFacets(10.0) + cubeFacets(10.0, dx = 20.0) + "endsolid two\n") }
+        NativeEngine.addModel(stl.path, "two")
+        val joined = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        val split = org.json.JSONObject(NativeEngine.splitObject(joined.id, false)).getJSONArray("ids")
+        assertEquals(2, split.length())
+        val pieces = PlateObject.parseList(NativeEngine.objectsJson())
+        assertEquals(listOf(10.0, 10.0), pieces.map { it.size[0] })
+        // A single piece has nothing to split.
+        assertEquals(0, org.json.JSONObject(NativeEngine.splitObject(pieces[0].id, false)).getJSONArray("ids").length())
+
+        // Cut the other cube in half: two objects of 5 mm.
+        val cut = org.json.JSONObject(NativeEngine.cutObject(pieces[1].id, 5.0, true, true, true)).getJSONArray("ids")
+        assertEquals(2, cut.length())
+        val halves = PlateObject.parseList(NativeEngine.objectsJson()).filter { it.id != pieces[0].id }
+        assertEquals(listOf(5.0, 5.0), halves.map { Math.round(it.size[2] * 1000) / 1000.0 })
+
+        NativeEngine.mirrorObject(pieces[0].id, 0)
+        NativeEngine.setCutPlane(pieces[0].id, 3.0)
+        NativeEngine.setCutPlane(-1, -1.0)
+        assertEquals(3, PlateObject.parseList(NativeEngine.objectsJson()).size)
+    }
+
+    @Test
+    fun adaptiveLayersAndObjectSettings() {
+        val stl = File(dir, "pyramid.stl").apply { writeText(pyramidStl()) }
+        NativeEngine.addModel(stl.path, "pyramid")
+        val pyramid = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        val out = File(dir, "out").apply { mkdirs() }
+        fun layers(): Int {
+            val result = SliceResult.parse(
+                NativeEngine.slice(presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament), emptyArray(), emptyArray(), out.path + "/", null)
+            )
+            assertTrue(result.error ?: "", result.ok)
+            return result.layerZs.size
+        }
+        val uniform = layers()
+
+        // The finest adaptive layers: more of them on the sloped sides.
+        NativeEngine.setLayerQuality(pyramid.id, 0f)
+        val adaptive = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertEquals(0f, adaptive.layerQuality)
+        assertTrue(adaptive.layerProfile)
+        assertTrue(layers() > uniform)
+        NativeEngine.setLayerQuality(pyramid.id, -1f)
+        assertEquals(uniform, layers())
+
+        // More perimeters for this object, and 0.1 mm layers with denser infill from 6 to 12 mm.
+        NativeEngine.setObjectOption(pyramid.id, -1.0, "perimeters", "5")
+        NativeEngine.editHeightRange(pyramid.id, -1.0, 6.0, 12.0)
+        NativeEngine.setObjectOption(pyramid.id, 6.0, "layer_height", "0.1")
+        NativeEngine.setObjectOption(pyramid.id, 6.0, "fill_density", "80%")
+        val settings = io.github.l0gic0l.andslice.engine.ObjectSettings.parse(NativeEngine.objectSettingsJson(pyramid.id))
+        assertEquals("5", settings.options["perimeters"])
+        assertEquals(listOf(6.0 to 12.0), settings.ranges.map { it.min to it.max })
+        assertEquals("80%", settings.ranges.single().options["fill_density"])
+        assertTrue("fill_density" in settings.rangeKeys)
+        assertTrue(PlateObject.parseList(NativeEngine.objectsJson()).single().ownSettings)
+        assertTrue(layers() > uniform)
+    }
+
+    @Test
+    fun savesAndOpensProjects() {
+        val stl = File(dir, "cube.stl").apply { writeText(cubeStl(20.0)) }
+        NativeEngine.addModel(stl.path, "cube")
+        val cube = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        NativeEngine.setTransform(cube.id, cube.transform(x = 60.0, y = 70.0, rz = 30.0))
+        assertTrue(NativeEngine.paintBegin(cube.id, PaintMode.SUPPORTS))
+        assertTrue(NativeEngine.paintOverhangs(PaintMode.ENFORCE, 45f))
+        NativeEngine.paintEnd()
+
+        val project = File(dir, "plate.3mf")
+        NativeEngine.saveProject(
+            project.path, presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament),
+            arrayOf("fill_density"), arrayOf("42%"),
+        )
+        assertTrue(ModelFiles.isProject(project))
+        NativeEngine.clearPlate()
+
+        val opened = org.json.JSONObject(NativeEngine.openProject(project.path))
+        assertEquals(1, opened.getJSONArray("ids").length())
+        val config = opened.getJSONObject("config")
+        assertEquals("42%", config.getString("fill_density"))
+        assertEquals(presets.printer, ModelFiles.parseStrings(config.getString("printer_settings_id")).single())
+        // Where it was, as it was turned, with its painting.
+        val restored = PlateObject.parseList(NativeEngine.objectsJson()).single()
+        assertEquals(60.0, restored.offset[0], 1e-3)
+        assertEquals(70.0, restored.offset[1], 1e-3)
+        assertEquals(30.0, restored.rotation[2], 1e-3)
+        assertTrue(restored.supportPainted)
+    }
+
+    @Test
+    fun zAntiAliasingFollowsSlopedTops() {
+        // A pyramid: every layer has a sloped top edge to follow.
+        val stl = File(dir, "pyramid.stl").apply { writeText(pyramidStl()) }
+        NativeEngine.addModel(stl.path, "pyramid")
+        val out = File(dir, "out").apply { mkdirs() }
+        val result = SliceResult.parse(
+            NativeEngine.slice(
+                presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament),
+                arrayOf("zaa_enabled"), arrayOf("1"), out.path + "/", null,
+            )
+        )
+        assertTrue(result.error ?: "", result.ok)
+        // Extrusions that also move Z: the nozzle follows the slope within a layer.
+        val contoured = Regex("^G1 X[-\\d.]+ Y[-\\d.]+ Z[-\\d.]+ E", RegexOption.MULTILINE)
+        assertTrue(contoured.containsMatchIn(File(result.path!!).readText()))
+    }
+
+    @Test
+    fun makesOverhangsPrintable() {
+        // A T: its arms reach 15 mm out from the post at 20 mm.
+        val tee = File(dir, "tee.stl").apply {
+            writeText("solid tee\n" + boxFacets(0.0, 0.0, 0.0, 10.0, 10.0, 20.0) + boxFacets(-15.0, 0.0, 20.0, 25.0, 10.0, 25.0) + "endsolid tee\n")
+        }
+        NativeEngine.addModel(tee.path, "tee")
+        val out = File(dir, "out").apply { mkdirs() }
+        fun slice(on: String) = SliceResult.parse(
+            NativeEngine.slice(
+                presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament),
+                arrayOf("make_overhang_printable"), arrayOf(on), out.path + "/",
+            ) { _, _ -> }
+        ).also { assertTrue(it.error ?: "", it.ok) }
+        // Leftmost extrusion just under the arms, at 18 mm.
+        fun leftAt18(path: String): Double {
+            var z = 0.0
+            var left = Double.MAX_VALUE
+            for (line in File(path).readLines()) {
+                if (!line.startsWith("G1")) continue
+                Regex("Z([-\\d.]+)").find(line)?.let { z = it.groupValues[1].toDouble() }
+                val x = Regex("X([-\\d.]+)").find(line)?.groupValues?.get(1)?.toDouble()
+                if (x != null && line.contains(" E") && Math.abs(z - 18.0) < 0.01) left = minOf(left, x)
+            }
+            return left
+        }
+        val plain = slice("0")
+        val plainLeft = leftAt18(plain.path!!)
+        val printable = slice("1")
+        // At 45° the wedge under each arm reaches 13 mm out at 2 mm under it; the post alone is 10 mm wide.
+        assertTrue(leftAt18(printable.path!!) < plainLeft - 10.0)
+        assertTrue(printable.filamentGrams > plain.filamentGrams)
+        // PrusaSlicer's stability check no longer finds overhangs that collapse.
+        assertTrue(printable.warnings.none { it.contains("Collapsing overhang") || it.contains("Loose extrusions") })
+    }
+
+    @Test
+    fun checksAndFixesPrintability() {
+        fun check(id: Long) = ObjectCheck.parseList(NativeEngine.checkPlate(40f, false, true)).single { it.id == id }
+
+        // A T: its arms overhang on both sides of the post.
+        val tee = File(dir, "tee.stl").apply {
+            writeText("solid tee\n" + boxFacets(0.0, 0.0, 0.0, 10.0, 10.0, 20.0) + boxFacets(-15.0, 0.0, 20.0, 25.0, 10.0, 25.0) + "endsolid tee\n")
+        }
+        val teeId = org.json.JSONObject(NativeEngine.addModel(tee.path, "tee")).getJSONArray("ids").getLong(0)
+        assertTrue(check(teeId).unsupportedMm2 >= Printability.LARGE_OVERHANG_MM2)
+        // With supports everywhere nothing is left unsupported.
+        assertEquals(0.0, ObjectCheck.parseList(NativeEngine.checkPlate(40f, true, true)).single().unsupportedMm2, 1e-9)
+        // Laid on its side, nothing overhangs.
+        NativeEngine.optimizeOrientation(teeId)
+        assertEquals(0.0, check(teeId).unsupportedMm2, 1e-6)
+        NativeEngine.clearPlate()
+
+        // A cube without its last two facets: a hole of four open edges.
+        val holey = File(dir, "holey.stl").apply { writeText("solid holey\n" + boxFacets(0.0, 0.0, 0.0, 20.0, 20.0, 20.0, skip = 2) + "endsolid holey\n") }
+        val holeyId = org.json.JSONObject(NativeEngine.addModel(holey.path, "holey")).getJSONArray("ids").getLong(0)
+        assertEquals(4, check(holeyId).openEdges)
+        val repair = org.json.JSONObject(NativeEngine.repairObject(holeyId))
+        assertEquals(1, repair.getInt("holes_filled"))
+        assertEquals(0, check(holeyId).openEdges)
+        NativeEngine.clearPlate()
+
+        // A 400 mm bar does not fit the 255 mm bed until it is scaled down.
+        val bar = File(dir, "bar.stl").apply { writeText("solid bar\n" + boxFacets(0.0, 0.0, 0.0, 400.0, 20.0, 10.0) + "endsolid bar\n") }
+        val barId = org.json.JSONObject(NativeEngine.addModel(bar.path, "bar")).getJSONArray("ids").getLong(0)
+        assertTrue(check(barId).tooBig)
+        NativeEngine.scaleToFit(barId)
+        assertTrue(!check(barId).tooBig && !check(barId).outside)
+    }
+
+    /** A 30 mm wide, 12 mm high pyramid: every layer has sloped edges. */
+    private fun pyramidStl(): String {
+        val tri = listOf(
+            listOf(0.0, 0.0, 0.0, 30.0, 0.0, 0.0, 15.0, 15.0, 12.0),
+            listOf(30.0, 0.0, 0.0, 30.0, 30.0, 0.0, 15.0, 15.0, 12.0),
+            listOf(30.0, 30.0, 0.0, 0.0, 30.0, 0.0, 15.0, 15.0, 12.0),
+            listOf(0.0, 30.0, 0.0, 0.0, 0.0, 0.0, 15.0, 15.0, 12.0),
+            listOf(0.0, 0.0, 0.0, 30.0, 30.0, 0.0, 30.0, 0.0, 0.0),
+            listOf(0.0, 0.0, 0.0, 0.0, 30.0, 0.0, 30.0, 30.0, 0.0),
+        )
+        return buildString {
+            append("solid pyramid\n")
+            for (t in tri) {
+                append("facet normal 0 0 0\nouter loop\n")
+                for (i in 0 until 3) append("vertex ${t[3 * i]} ${t[3 * i + 1]} ${t[3 * i + 2]}\n")
+                append("endloop\nendfacet\n")
+            }
+            append("endsolid pyramid\n")
+        }
+    }
+
+    private fun cubeStl(size: Double): String = "solid cube\n" + cubeFacets(size) + "endsolid cube\n"
+
+    /** The facets of a box from (x0, y0, z0) to (x1, y1, z1), without the last [skip] of them. */
+    private fun boxFacets(x0: Double, y0: Double, z0: Double, x1: Double, y1: Double, z1: Double, skip: Int = 0): String {
+        val v = arrayOf(
+            doubleArrayOf(x0, y0, z0), doubleArrayOf(x1, y0, z0), doubleArrayOf(x1, y1, z0), doubleArrayOf(x0, y1, z0),
+            doubleArrayOf(x0, y0, z1), doubleArrayOf(x1, y0, z1), doubleArrayOf(x1, y1, z1), doubleArrayOf(x0, y1, z1),
+        )
+        val faces = listOf(
+            intArrayOf(0, 2, 1), intArrayOf(0, 3, 2), intArrayOf(4, 5, 6), intArrayOf(4, 6, 7),
+            intArrayOf(0, 1, 5), intArrayOf(0, 5, 4), intArrayOf(1, 2, 6), intArrayOf(1, 6, 5),
+            intArrayOf(2, 3, 7), intArrayOf(2, 7, 6), intArrayOf(3, 0, 4), intArrayOf(3, 4, 7),
+        ).dropLast(skip)
+        return buildString {
+            for (f in faces) {
+                append("facet normal 0 0 0\nouter loop\n")
+                for (i in f) append("vertex ${v[i][0]} ${v[i][1]} ${v[i][2]}\n")
+                append("endloop\nendfacet\n")
+            }
+        }
+    }
+
+    /** The facets of a cube of [size] mm, moved [dx] mm along X. */
+    private fun cubeFacets(size: Double, dx: Double = 0.0): String {
+        val s = size
+        val v = arrayOf(
+            doubleArrayOf(0.0, 0.0, 0.0), doubleArrayOf(s, 0.0, 0.0), doubleArrayOf(s, s, 0.0), doubleArrayOf(0.0, s, 0.0),
+            doubleArrayOf(0.0, 0.0, s), doubleArrayOf(s, 0.0, s), doubleArrayOf(s, s, s), doubleArrayOf(0.0, s, s),
+        )
+        val faces = listOf(
+            intArrayOf(0, 2, 1), intArrayOf(0, 3, 2), intArrayOf(4, 5, 6), intArrayOf(4, 6, 7),
+            intArrayOf(0, 1, 5), intArrayOf(0, 5, 4), intArrayOf(1, 2, 6), intArrayOf(1, 6, 5),
+            intArrayOf(2, 3, 7), intArrayOf(2, 7, 6), intArrayOf(3, 0, 4), intArrayOf(3, 4, 7),
+        )
+        return buildString {
+            for (f in faces) {
+                append("facet normal 0 0 0\nouter loop\n")
+                for (i in f) append("vertex ${v[i][0] + dx} ${v[i][1]} ${v[i][2]}\n")
+                append("endloop\nendfacet\n")
+            }
+        }
+    }
+}

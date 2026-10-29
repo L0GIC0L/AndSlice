@@ -1,0 +1,331 @@
+package io.github.l0gic0l.andslice.ui
+
+import kotlin.math.roundToInt
+import java.util.Locale
+import java.io.File
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import io.github.l0gic0l.andslice.ui.scene.SceneView
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import android.content.Context
+import android.Manifest
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
+import io.github.l0gic0l.andslice.BuildConfig
+import io.github.l0gic0l.andslice.PanelMode
+import io.github.l0gic0l.andslice.PreferencesViewModel
+import io.github.l0gic0l.andslice.ThemeMode
+
+/** One row of a preferences group: a switch, or a choice between a few values. */
+private sealed interface PrefRow {
+    data class Toggle(
+        val title: String,
+        val summary: String?,
+        val checked: Boolean,
+        val enabled: Boolean = true,
+        val onChange: (Boolean) -> Unit,
+    ) : PrefRow
+
+    data class Segments(
+        val title: String,
+        val summary: String?,
+        val options: List<String>,
+        val selected: Int,
+        val onSelect: (Int) -> Unit,
+    ) : PrefRow
+
+    data class Action(val title: String, val summary: String?, val onClick: () -> Unit) : PrefRow
+}
+
+/** How the app looks and behaves, as opposed to the slicing settings. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
+    var showAbout by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    // Turning print notifications on asks Android for them; once refused, its settings page is the way.
+    val openNotificationSettings = {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+        )
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) openNotificationSettings()
+    }
+    val scales = listOf(1f, 0.75f, 0.5f)
+    val samples = listOf(0, 2, 4)
+    val turnSpeeds = listOf(0.6f, 1f, 1.6f)
+    val scope = rememberCoroutineScope()
+    // Cached files, computed off the main thread and again after clearing them.
+    var cacheBytes by remember { mutableStateOf<Long?>(null) }
+    var cacheVersion by remember { mutableIntStateOf(0) }
+    LaunchedEffect(cacheVersion) { cacheBytes = withContext(Dispatchers.IO) { cachedFiles(context).sumOf { it.totalSize() } } }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                },
+                title = { Text("App settings") },
+            )
+        },
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(Modifier.widthIn(max = 720.dp).fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp)) {
+                group(
+                    "Appearance",
+                    PrefRow.Segments(
+                        "Theme", null, listOf("System", "Light", "Dark"), prefs.theme.ordinal,
+                    ) { prefs.theme = ThemeMode.entries[it] },
+                    PrefRow.Toggle(
+                        "Wallpaper colors",
+                        if (dynamicColorAvailable) "Material You colors from your wallpaper" else "Needs Android 12 or later",
+                        prefs.dynamicColor && dynamicColorAvailable,
+                        enabled = dynamicColorAvailable,
+                    ) { prefs.dynamicColor = it },
+                )
+                group(
+                    "Layout",
+                    PrefRow.Segments(
+                        "Side panel on large screens",
+                        when (prefs.sidePanel) {
+                            PanelMode.Half -> "Half of the screen: the plate and all slicing settings beside the 3D view"
+                            PanelMode.Narrow -> "The same panel 400 dp wide, on screens 840 dp and wider"
+                            PanelMode.Off -> "Profiles in a bar under the plate, as on phones"
+                        },
+                        listOf("Half", "Narrow", "Off"), prefs.sidePanel.ordinal,
+                    ) { prefs.sidePanel = PanelMode.entries[it] },
+                    PrefRow.Toggle(
+                        "Resizable side panel",
+                        if (prefs.sidePanelWidth > 0f) "Dragged to ${prefs.sidePanelWidth.roundToInt()} dp. Double tap the edge to reset it"
+                        else "Drag the edge between the 3D view and the panel; double tap it to reset",
+                        prefs.resizableSidePanel,
+                        enabled = prefs.sidePanel != PanelMode.Off,
+                    ) { prefs.resizableSidePanel = it },
+                    PrefRow.Toggle(
+                        "Split at the hinge",
+                        "On a half-open foldable, the plate above the hinge and the controls below",
+                        prefs.splitWhenFolded,
+                    ) { prefs.splitWhenFolded = it },
+                )
+                group(
+                    "3D view",
+                    PrefRow.Segments(
+                        "Camera",
+                        if (prefs.orthographic) "Parallel lines stay parallel, as in a technical drawing" else "Far things look smaller, as to the eye",
+                        listOf("Perspective", "Orthographic"), if (prefs.orthographic) 1 else 0,
+                    ) { prefs.orthographic = it == 1 },
+                    PrefRow.Segments(
+                        "Turn speed", "How far a drag turns the view",
+                        listOf("Slow", "Normal", "Fast"), turnSpeeds.indexOf(prefs.turnSpeed).let { if (it < 0) 1 else it },
+                    ) { prefs.turnSpeed = turnSpeeds[it] },
+                    PrefRow.Toggle(
+                        "Invert up and down", "Dragging up turns the view to look from above",
+                        prefs.invertVertical,
+                    ) { prefs.invertVertical = it },
+                    PrefRow.Toggle("Bed grid", null, prefs.showGrid) { prefs.showGrid = it },
+                )
+                group(
+                    "Performance",
+                    PrefRow.Segments(
+                        "Toolpaths in the preview",
+                        when (prefs.toolpathDetail) {
+                            SceneView.DETAIL_FULL -> "Always their full shape. Slow to turn on big prints"
+                            SceneView.DETAIL_SIMPLE -> "Always only their side facing you: a quarter of the GPU work"
+                            else -> "Only their side facing you while you turn or zoom, full shapes when you let go"
+                        },
+                        listOf("Detailed", "While moving", "Simple"), prefs.toolpathDetail.coerceIn(0, 2),
+                    ) { prefs.toolpathDetail = it },
+                    PrefRow.Segments(
+                        "Anti-aliasing", "Smoother edges, for more GPU work on every pixel",
+                        listOf("Off", "2×", "4×"), samples.indexOf(prefs.antialiasing).coerceAtLeast(0),
+                    ) { prefs.antialiasing = samples[it] },
+                    PrefRow.Segments(
+                        "Resolution", "Lower draws fewer pixels and saves battery; it does not help with many toolpaths",
+                        listOf("100%", "75%", "50%"), scales.indexOf(prefs.renderScale).coerceAtLeast(0),
+                    ) { prefs.renderScale = scales[it] },
+                )
+                group(
+                    "Plate",
+                    PrefRow.Toggle(
+                        "Ask before clearing the plate", null, prefs.confirmClearPlate,
+                    ) { prefs.confirmClearPlate = it },
+                    PrefRow.Toggle(
+                        "Keep the plate between sessions", "The plate comes back when the app starts again",
+                        prefs.autosavePlate,
+                    ) { prefs.autosavePlate = it },
+                )
+                group(
+                    "Behavior",
+                    PrefRow.Toggle(
+                        "Open the preview after slicing",
+                        "Otherwise stay on the plate",
+                        prefs.openPreviewAfterSlicing,
+                    ) { prefs.openPreviewAfterSlicing = it },
+                    PrefRow.Toggle(
+                        "Keep the screen on",
+                        "While the printer screen is open, e.g. to watch the camera",
+                        prefs.keepScreenOn,
+                    ) { prefs.keepScreenOn = it },
+                    PrefRow.Segments(
+                        "Settings open in", null, listOf("Simple", "Advanced", "Expert"), prefs.settingsMode,
+                    ) { prefs.settingsMode = it },
+                )
+                group(
+                    "Printing",
+                    PrefRow.Toggle(
+                        "Print notifications",
+                        "Progress, time left and pause while printing, and an alert when the print ends",
+                        prefs.printNotifications,
+                    ) { on ->
+                        prefs.printNotifications = on
+                        if (on && !NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+                            prefs.askedNotificationPermission = true
+                            if (Build.VERSION.SDK_INT >= 33) {
+                                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                openNotificationSettings()
+                            }
+                        }
+                    },
+                    PrefRow.Toggle(
+                        "Camera in the notification",
+                        "A snapshot from the printer's camera, once a minute",
+                        prefs.notificationSnapshots,
+                        enabled = prefs.printNotifications,
+                    ) { prefs.notificationSnapshots = it },
+                )
+                group(
+                    "Storage",
+                    PrefRow.Action(
+                        "Clear cached files",
+                        cacheBytes?.let { "${formatBytes(it)} of imported model copies, camera snapshots and web pages" } ?: "Counting…",
+                    ) {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { cachedFiles(context).forEach { it.deleteRecursively() } }
+                            cacheVersion++
+                        }
+                    },
+                )
+                group(
+                    "About",
+                    PrefRow.Action("AndSlice ${BuildConfig.VERSION_NAME}", "PrusaSlicer 2.9.6 engine · licenses") { showAbout = true },
+                )
+            }
+        }
+    }
+
+    if (showAbout) AboutDialog(onDismiss = { showAbout = false })
+}
+
+/** Files in the app's cache that may go: everything but the G-code of the last slice, which printing and saving use. */
+private fun cachedFiles(context: Context): List<File> =
+    context.cacheDir.listFiles()?.filter { it.name != "gcode" }.orEmpty()
+
+private fun File.totalSize(): Long = walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> String.format(Locale.US, "%.1f GB", bytes / (1L shl 30).toDouble())
+    bytes >= 1L shl 20 -> String.format(Locale.US, "%.1f MB", bytes / (1L shl 20).toDouble())
+    else -> "${bytes / 1024} KB"
+}
+
+private fun LazyListScope.group(title: String, vararg rows: PrefRow) {
+    item(key = "header-$title") { SectionHeader(title) }
+    rows.forEachIndexed { i, row ->
+        item(key = "$title-$i") { PrefRowItem(row, groupShape(i, rows.size)) }
+    }
+}
+
+@Composable
+private fun PrefRowItem(row: PrefRow, shape: Shape) {
+    val block = Modifier
+        .padding(horizontal = 16.dp)
+        .padding(bottom = 2.dp)
+        .clip(shape)
+        .background(MaterialTheme.colorScheme.surfaceContainer)
+    val colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    when (row) {
+        is PrefRow.Toggle -> ListItem(
+            headlineContent = { Text(row.title) },
+            supportingContent = row.summary?.let { { Text(it) } },
+            trailingContent = { Switch(checked = row.checked, onCheckedChange = null, enabled = row.enabled) },
+            colors = colors,
+            modifier = block.toggleable(row.checked, enabled = row.enabled, role = Role.Switch, onValueChange = row.onChange),
+        )
+        is PrefRow.Segments -> ListItem(
+            headlineContent = { Text(row.title) },
+            supportingContent = {
+                Column {
+                    row.summary?.let { Text(it) }
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        row.options.forEachIndexed { i, option ->
+                            SegmentedButton(
+                                selected = i == row.selected,
+                                onClick = { if (i != row.selected) row.onSelect(i) },
+                                shape = SegmentedButtonDefaults.itemShape(i, row.options.size),
+                            ) { Text(option, maxLines = 1) }
+                        }
+                    }
+                }
+            },
+            colors = colors,
+            modifier = block,
+        )
+        is PrefRow.Action -> ListItem(
+            headlineContent = { Text(row.title) },
+            supportingContent = row.summary?.let { { Text(it) } },
+            colors = colors,
+            modifier = block.clickable(onClick = row.onClick),
+        )
+    }
+}

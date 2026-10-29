@@ -1,0 +1,149 @@
+diff --git a/src/libvgcode/include/Viewer.hpp b/src/libvgcode/include/Viewer.hpp
+index a66b88f..6a1363d 100644
+--- a/src/libvgcode/include/Viewer.hpp
++++ b/src/libvgcode/include/Viewer.hpp
+@@ -91,6 +91,13 @@ public:
+     //
+     void toggle_top_layer_only_view_range();
+     //
++    // Low detail
++    // Whether toolpath segments are drawn as their side facing the camera only, with a quarter of
++    // the vertices, e.g. to keep the camera responsive on slow GPUs.
++    //
++    bool is_low_detail() const;
++    void set_low_detail(bool low_detail);
++    //
+     // Returns true if the given option is visible.
+     //
+     bool is_option_visible(EOptionType type) const;
+diff --git a/src/libvgcode/src/SegmentTemplate.cpp b/src/libvgcode/src/SegmentTemplate.cpp
+index 4e692d5..7ccbd8c 100644
+--- a/src/libvgcode/src/SegmentTemplate.cpp
++++ b/src/libvgcode/src/SegmentTemplate.cpp
+@@ -15,7 +15,7 @@ namespace libvgcode {
+ //|   2--0-------5--7   |
+ //|    \ |       | /    |
+ //|      3-------4      | 
+-static constexpr const std::array<uint8_t, 24> VERTEX_DATA = {
++static constexpr const std::array<uint8_t, 30> VERTEX_DATA = {
+     0, 1, 2, // front spike
+     0, 2, 3, // front spike
+     0, 3, 4, // right/bottom body 
+@@ -24,7 +24,12 @@ static constexpr const std::array<uint8_t, 24> VERTEX_DATA = {
+     0, 6, 1, // left/top body 
+     5, 4, 7, // back spike
+     5, 7, 6, // back spike
++    // low detail: the left/top body alone, the side the shader turns towards the camera
++    0, 5, 6,
++    0, 6, 1,
+ };
++static constexpr const GLsizei FULL_VERTICES_COUNT = 24;
++static constexpr const GLsizei LOW_DETAIL_VERTICES_COUNT = 6;
+ 
+ void SegmentTemplate::init()
+ {
+@@ -69,7 +74,7 @@ void SegmentTemplate::shutdown()
+     m_size_in_bytes_gpu = 0;
+ }
+ 
+-void SegmentTemplate::render(size_t count)
++void SegmentTemplate::render(size_t count, bool low_detail)
+ {
+     if (m_vao_id == 0 || m_vbo_id == 0 || count == 0)
+         return;
+@@ -78,7 +83,10 @@ void SegmentTemplate::render(size_t count)
+     glsafe(glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &curr_vertex_array));
+ 
+     glsafe(glBindVertexArray(m_vao_id));
+-    glsafe(glDrawArraysInstanced(GL_TRIANGLES, 0, static_cast<GLsizei>(VERTEX_DATA.size()), static_cast<GLsizei>(count)));
++    if (low_detail)
++        glsafe(glDrawArraysInstanced(GL_TRIANGLES, FULL_VERTICES_COUNT, LOW_DETAIL_VERTICES_COUNT, static_cast<GLsizei>(count)));
++    else
++        glsafe(glDrawArraysInstanced(GL_TRIANGLES, 0, FULL_VERTICES_COUNT, static_cast<GLsizei>(count)));
+     glsafe(glBindVertexArray(curr_vertex_array));
+ }
+ 
+diff --git a/src/libvgcode/src/SegmentTemplate.hpp b/src/libvgcode/src/SegmentTemplate.hpp
+index f104eef..cf101c5 100644
+--- a/src/libvgcode/src/SegmentTemplate.hpp
++++ b/src/libvgcode/src/SegmentTemplate.hpp
+@@ -27,7 +27,10 @@ public:
+     // Release gpu buffers.
+     //
+     void shutdown();
+-    void render(size_t count);
++    //
++    // With low_detail, each segment is only the side facing the camera: 2 triangles instead of 8.
++    //
++    void render(size_t count, bool low_detail = false);
+ 
+     //
+     // Return the size of the data sent to gpu, in bytes.
+diff --git a/src/libvgcode/src/Viewer.cpp b/src/libvgcode/src/Viewer.cpp
+index 612a1ed..4a06378 100644
+--- a/src/libvgcode/src/Viewer.cpp
++++ b/src/libvgcode/src/Viewer.cpp
+@@ -72,6 +72,16 @@ void Viewer::toggle_top_layer_only_view_range()
+     m_impl->toggle_top_layer_only_view_range();
+ }
+ 
++bool Viewer::is_low_detail() const
++{
++    return m_impl->is_low_detail();
++}
++
++void Viewer::set_low_detail(bool low_detail)
++{
++    m_impl->set_low_detail(low_detail);
++}
++
+ bool Viewer::is_option_visible(EOptionType type) const
+ {
+     return m_impl->is_option_visible(type);
+diff --git a/src/libvgcode/src/ViewerImpl.cpp b/src/libvgcode/src/ViewerImpl.cpp
+index d851fd1..a3ebd62 100644
+--- a/src/libvgcode/src/ViewerImpl.cpp
++++ b/src/libvgcode/src/ViewerImpl.cpp
+@@ -1884,7 +1884,7 @@ void ViewerImpl::render_segments(const Mat4x4& view_matrix, const Mat4x4& projec
+         glsafe(glBindTexture(GL_TEXTURE_2D, m_texture_data.get_colors_tex_id(i).first));
+         glsafe(glActiveTexture(GL_TEXTURE3));
+         glsafe(glBindTexture(GL_TEXTURE_2D, id));
+-        m_segment_template.render(count);
++        m_segment_template.render(count, m_low_detail);
+     }
+ #else
+     std::array<int, 4> curr_bound_texture = { 0, 0, 0, 0 };
+@@ -1907,7 +1907,7 @@ void ViewerImpl::render_segments(const Mat4x4& view_matrix, const Mat4x4& projec
+     glsafe(glBindTexture(GL_TEXTURE_BUFFER, m_enabled_segments_tex_id));
+     glsafe(glTexBuffer(GL_TEXTURE_BUFFER, GL_R32UI, m_enabled_segments_buf_id));
+ 
+-    m_segment_template.render(m_enabled_segments_count);
++    m_segment_template.render(m_enabled_segments_count, m_low_detail);
+ #endif // ENABLE_OPENGL_ES
+ 
+     if (curr_cull_face)
+diff --git a/src/libvgcode/src/ViewerImpl.hpp b/src/libvgcode/src/ViewerImpl.hpp
+index 12a9e4a..dceb8ab 100644
+--- a/src/libvgcode/src/ViewerImpl.hpp
++++ b/src/libvgcode/src/ViewerImpl.hpp
+@@ -85,6 +85,9 @@ public:
+     bool is_top_layer_only_view_range() const { return m_settings.top_layer_only_view_range; }
+     void toggle_top_layer_only_view_range();
+ 
++    bool is_low_detail() const { return m_low_detail; }
++    void set_low_detail(bool low_detail) { m_low_detail = low_detail; }
++
+     bool is_spiral_vase_mode() const { return m_settings.spiral_vase_mode; }
+ 
+     std::vector<ETimeMode> get_time_modes() const;
+@@ -242,6 +245,10 @@ private:
+     std::array<Color, size_t(EOptionType::COUNT)> m_options_colors;
+ 
+     bool m_initialized{ false };
++    //
++    // Segments are drawn with fewer triangles, e.g. while the camera moves
++    //
++    bool m_low_detail{ false };
+ 
+     //
+     // The OpenGL element used to represent all toolpath segments

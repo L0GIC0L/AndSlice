@@ -51,6 +51,7 @@ enum class IssueFix(val label: String) {
     Repair("Repair mesh"),
     Orient("Optimize orientation"),
     Supports("Turn on supports"),
+    MakeOverhangsPrintable("Make overhangs printable"),
     PaintSupports("Paint supports"),
     Brim("Add a brim"),
     ScaleToFit("Scale to fit"),
@@ -77,9 +78,12 @@ object Printability {
 
     /**
      * Issues of the objects on the plate, from the mesh check. [supports] tells whether automatic
-     * supports are on and [brim] whether a brim is; fixes that would change nothing are left out.
+     * supports are on, [brim] whether a brim is, and [overhangsPrintable] whether the slicer adds
+     * material under steep overhangs; fixes that would change nothing are left out.
      */
-    fun plateIssues(checks: List<ObjectCheck>, supports: Boolean, brim: Boolean, overhangAngle: Int): List<PrintIssue> =
+    fun plateIssues(
+        checks: List<ObjectCheck>, supports: Boolean, brim: Boolean, overhangAngle: Int, overhangsPrintable: Boolean = false,
+    ): List<PrintIssue> =
         checks.flatMap { c ->
             buildList {
                 fun add(warning: Boolean, title: String, detail: String, vararg fixes: IssueFix) =
@@ -101,9 +105,10 @@ object Printability {
                         "${c.repairedErrors} broken or flipped facets were fixed when the model was loaded. Check the preview.",
                     )
                 }
-                if (c.unsupportedMm2 >= LARGE_OVERHANG_MM2) {
+                if (c.unsupportedMm2 >= LARGE_OVERHANG_MM2 && !overhangsPrintable) {
                     val fixes = listOfNotNull(
                         IssueFix.Supports.takeUnless { supports },
+                        IssueFix.MakeOverhangsPrintable,
                         IssueFix.Orient,
                         IssueFix.PaintSupports,
                     )
@@ -131,25 +136,31 @@ object Printability {
         }
 
     /** Issues from the slicer's warnings, such as PrusaSlicer's "Detected print stability issues". */
-    fun sliceIssues(warnings: List<String>, supports: Boolean, brim: Boolean): List<PrintIssue> = warnings.map { w ->
-        val stability = w.startsWith(STABILITY)
-        val detail = if (stability) {
-            w.removePrefix(STABILITY).lines().map { it.trim() }
-                .filter { it.isNotEmpty() && !it.startsWith("Consider enabling") && !it.startsWith("Also consider") }
-                .joinToString("\n")
-        } else {
-            w.trim()
+    fun sliceIssues(warnings: List<String>, supports: Boolean, brim: Boolean, overhangsPrintable: Boolean = false): List<PrintIssue> =
+        warnings.map { w ->
+            val stability = w.startsWith(STABILITY)
+            val detail = if (stability) {
+                w.removePrefix(STABILITY).lines().map { it.trim() }
+                    .filter { it.isNotEmpty() && !it.startsWith("Consider enabling") && !it.startsWith("Also consider") }
+                    .joinToString("\n")
+            } else {
+                w.trim()
+            }
+            PrintIssue(
+                objectId = null, objectName = null, warning = true,
+                title = if (stability) "Print stability issues" else "Slicing warning",
+                detail = detail,
+                fixes = listOfNotNull(
+                    IssueFix.Supports.takeIf { !supports && w.contains("enabling supports") },
+                    // Overhangs and extrusions in the air; material under them does not help bed adhesion.
+                    IssueFix.MakeOverhangsPrintable.takeIf {
+                        !supports && !overhangsPrintable && w.contains("enabling supports") &&
+                            listOf("overhang", "Loose extrusions", "bridg").any { w.contains(it, ignoreCase = true) }
+                    },
+                    IssueFix.Brim.takeIf { !brim && w.contains("enabling brim") },
+                ),
+            )
         }
-        PrintIssue(
-            objectId = null, objectName = null, warning = true,
-            title = if (stability) "Print stability issues" else "Slicing warning",
-            detail = detail,
-            fixes = listOfNotNull(
-                IssueFix.Supports.takeIf { !supports && w.contains("enabling supports") },
-                IssueFix.Brim.takeIf { !brim && w.contains("enabling brim") },
-            ),
-        )
-    }
 
     private const val STABILITY = "Detected print stability issues:"
 

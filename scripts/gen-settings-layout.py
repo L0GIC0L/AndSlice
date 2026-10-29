@@ -33,6 +33,8 @@ LAST_PAGES = ["Notes", "Dependencies"]
 # Options AndSlice adds to libslic3r (patches/), as (tab, page, group, keys) after the page's groups.
 EXTRA_GROUPS = [
     ("print", "Layers and perimeters", "Z anti-aliasing", ["zaa_enabled", "zaa_min_z", "zaa_minimize_perimeter_height"]),
+    ("print", "Support material", "Overhangs without supports",
+     ["make_overhang_printable", "make_overhang_printable_angle", "make_overhang_printable_hole_size"]),
 ]
 
 AXES = ["x", "y", "z", "e"]

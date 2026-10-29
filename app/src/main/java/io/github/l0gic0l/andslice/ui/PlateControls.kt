@@ -68,6 +68,8 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -151,7 +153,7 @@ fun PlateBottomBar(vm: SlicerViewModel, printers: PrinterViewModel, onAddPrinter
             ChipRow {
                 val supports = supportsChoice(vm)
                 FilterChip(
-                    selected = supports != "off",
+                    selected = supports != "off" || overhangsPrintable(vm),
                     onClick = { sheet = PlateSheets.SUPPORTS },
                     label = { Text(supportsLabel(vm)) },
                     leadingIcon = { Icon(Icons.Default.Park, null, Modifier.size(FilterChipDefaults.IconSize)) },
@@ -205,6 +207,7 @@ fun PlateSheet(vm: SlicerViewModel, printers: PrinterViewModel, sheet: String?, 
 
 fun supportsLabel(vm: SlicerViewModel): String {
     val choice = supportsChoice(vm)
+    if (choice == "off" && overhangsPrintable(vm)) return "Printable overhangs"
     val label = SUPPORT_CHOICES.first { it.value == choice }.label
     val style = SUPPORT_STYLES.firstOrNull { it.value == vm.value("support_material_style") }
     return if (choice == "off" || style == null || style.value == "grid") label else "$label · ${style.label}"
@@ -234,6 +237,7 @@ private fun SupportsSheet(vm: SlicerViewModel, onDismiss: () -> Unit) {
                     },
                 )
             }
+            OverhangsPrintableSetting(vm)
             if (selected != "off") {
                 val style = vm.value("support_material_style") ?: "grid"
                 Text("Style", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 8.dp))
@@ -277,6 +281,50 @@ private fun SupportsSheet(vm: SlicerViewModel, onDismiss: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+fun overhangsPrintable(vm: SlicerViewModel) = vm.value("make_overhang_printable") == "1"
+
+/**
+ * Make overhangs printable (patches/0006, OrcaSlicer's port of Cura's conical overhang): material under
+ * overhangs steeper than the angle, so they print without supports.
+ */
+@Composable
+private fun OverhangsPrintableSetting(vm: SlicerViewModel) {
+    val on = overhangsPrintable(vm)
+    val saved = vm.value("make_overhang_printable_angle")?.toFloatOrNull() ?: 45f
+    var angle by remember(saved) { mutableFloatStateOf(saved) }
+    ListItem(
+        headlineContent = { Text("Make overhangs printable") },
+        supportingContent = {
+            Text("Adds material under overhangs steeper than ${angle.roundToInt()}° from vertical, so they print without supports. The model gets wedges of plastic under them.")
+        },
+        trailingContent = { Switch(checked = on, onCheckedChange = null) },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier.toggleable(value = on, role = Role.Switch) { vm.setOverride("make_overhang_printable", if (it) "1" else "0") }
+            .testTag("overhangs-printable"),
+    )
+    if (on) {
+        Text(
+            "Steepest overhang: ${angle.roundToInt()}° from vertical",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(start = 24.dp, top = 8.dp),
+        )
+        Slider(
+            value = angle,
+            onValueChange = { angle = it },
+            onValueChangeFinished = { vm.setOverride("make_overhang_printable_angle", angle.roundToInt().toString()) },
+            valueRange = 30f..70f,
+            steps = 7,
+            modifier = Modifier.padding(horizontal = 24.dp),
+        )
+        Text(
+            "Lower is safer and adds more plastic. 45° prints on most printers.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 24.dp),
+        )
     }
 }
 

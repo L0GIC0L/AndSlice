@@ -206,6 +206,14 @@
       "support_tree_branch_distance",
       "support_tree_top_rate"
      ]
+    },
+    {
+     "title": "Overhangs without supports",
+     "keys": [
+      "make_overhang_printable",
+      "make_overhang_printable_angle",
+      "make_overhang_printable_hole_size"
+     ]
     }
    ]
   },

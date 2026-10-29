@@ -29,11 +29,14 @@ class PrintabilityTest {
         assertEquals("Large overhangs", off.title)
         assertTrue(off.warning)
         assertTrue(off.detail.contains("400 mm²") && off.detail.contains("40°"))
-        assertEquals(listOf(IssueFix.Supports, IssueFix.Orient, IssueFix.PaintSupports), off.fixes)
+        assertEquals(listOf(IssueFix.Supports, IssueFix.MakeOverhangsPrintable, IssueFix.Orient, IssueFix.PaintSupports), off.fixes)
 
         // Blockers painted over overhangs leave them unsupported with automatic supports on.
         val on = Printability.plateIssues(listOf(check(overhang = 400.0, unsupported = 120.0)), supports = true, brim = false, overhangAngle = 40)
-        assertEquals(listOf(IssueFix.Orient, IssueFix.PaintSupports), on.single().fixes)
+        assertEquals(listOf(IssueFix.MakeOverhangsPrintable, IssueFix.Orient, IssueFix.PaintSupports), on.single().fixes)
+
+        // With material added under steep overhangs, they print.
+        assertTrue(Printability.plateIssues(listOf(check(overhang = 400.0)), false, false, 40, overhangsPrintable = true).isEmpty())
 
         // Small overhangs print.
         assertTrue(Printability.plateIssues(listOf(check(overhang = 30.0)), false, false, 40).isEmpty())
@@ -74,8 +77,15 @@ class PrintabilityTest {
         val issue = Printability.sliceIssues(listOf(warning), supports = false, brim = false).single()
         assertEquals("Print stability issues", issue.title)
         assertEquals("tee.stl\nFloating bridge anchors, Low bed adhesion, Loose extrusions", issue.detail)
-        assertEquals(listOf(IssueFix.Supports, IssueFix.Brim), issue.fixes)
+        assertEquals(listOf(IssueFix.Supports, IssueFix.MakeOverhangsPrintable, IssueFix.Brim), issue.fixes)
         assertTrue(Printability.sliceIssues(listOf(warning), supports = true, brim = true).single().fixes.isEmpty())
+        assertEquals(
+            listOf(IssueFix.Supports, IssueFix.Brim),
+            Printability.sliceIssues(listOf(warning), supports = false, brim = false, overhangsPrintable = true).single().fixes,
+        )
+        // Material under overhangs does not help a print that only lacks bed adhesion.
+        val adhesion = "Detected print stability issues:\n\ntee.stl\nLow bed adhesion\n\nConsider enabling supports.\nAlso consider enabling brim."
+        assertEquals(listOf(IssueFix.Supports, IssueFix.Brim), Printability.sliceIssues(listOf(adhesion), false, false).single().fixes)
 
         val other = Printability.sliceIssues(listOf("Toolpaths of \"a\" and \"b\" collide at 2.00 mm."), false, false).single()
         assertEquals("Slicing warning", other.title)

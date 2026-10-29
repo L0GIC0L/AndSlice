@@ -890,6 +890,9 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         get() = value("support_material") == "1" && value("support_material_auto") != "0"
     private val hasBrim: Boolean
         get() = (value("brim_width")?.toDoubleOrNull() ?: 0.0) > 0.0
+    /** The slicer adds material under steep overhangs (patches/0006). */
+    private val overhangsPrintable: Boolean
+        get() = value("make_overhang_printable") == "1"
 
     /** Overhang angle supports start at; PrusaSlicer's automatic threshold (0) is about 45°. */
     private val overhangThreshold: Int
@@ -899,8 +902,8 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     val printIssues: List<PrintIssue>
         get() {
             val checks = plateChecks.filter { c -> objects.any { it.id == c.id } }
-            val plate = Printability.plateIssues(checks, automaticSupports, hasBrim, overhangThreshold)
-            val slice = result?.takeIf { !resultStale }?.let { Printability.sliceIssues(it.warnings, automaticSupports, hasBrim) }
+            val plate = Printability.plateIssues(checks, automaticSupports, hasBrim, overhangThreshold, overhangsPrintable)
+            val slice = result?.takeIf { !resultStale }?.let { Printability.sliceIssues(it.warnings, automaticSupports, hasBrim, overhangsPrintable) }
             return plate + slice.orEmpty()
         }
 
@@ -931,6 +934,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
                 setOverride("support_material_auto", "1")
             }
             IssueFix.Brim -> setOverride("brim_width", "5")
+            IssueFix.MakeOverhangsPrintable -> setOverride("make_overhang_printable", "1")
             IssueFix.Arrange -> arrange()
             IssueFix.ScaleToFit -> if (id != null) plateChange {
                 NativeEngine.scaleToFit(id)
@@ -1380,7 +1384,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
                 if (r.extrudersUsed.size > 1 && viewType == 0) viewType = VIEW_TYPE_TOOL
                 syncSlots()
                 if (r.warnings.isNotEmpty()) {
-                    val fixable = Printability.sliceIssues(r.warnings, automaticSupports, hasBrim).any { it.fixes.isNotEmpty() }
+                    val fixable = Printability.sliceIssues(r.warnings, automaticSupports, hasBrim, overhangsPrintable).any { it.fixes.isNotEmpty() }
                     message = r.warnings.joinToString("\n") + if (fixable) "\n\nFixes are under Check print." else ""
                 } else if (mode != ViewMode.Preview) {
                     message = "Sliced. Open the preview to print or save the G-code."
@@ -1478,6 +1482,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
         val QUICK_SETTINGS = setOf(
             "support_material", "support_material_auto", "support_material_buildplate_only", "support_material_style",
             "fill_density", "brim_width",
+            "make_overhang_printable", "make_overhang_printable_angle", "make_overhang_printable_hole_size",
         ) + SUPPORT_SLOT_KEYS
         private const val KEY_PRINTER = "printer"
         private const val KEY_PRINT = "print"

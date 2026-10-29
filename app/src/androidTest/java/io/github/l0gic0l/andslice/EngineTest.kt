@@ -409,6 +409,42 @@ class EngineTest {
     }
 
     @Test
+    fun makesOverhangsPrintable() {
+        // A T: its arms reach 15 mm out from the post at 20 mm.
+        val tee = File(dir, "tee.stl").apply {
+            writeText("solid tee\n" + boxFacets(0.0, 0.0, 0.0, 10.0, 10.0, 20.0) + boxFacets(-15.0, 0.0, 20.0, 25.0, 10.0, 25.0) + "endsolid tee\n")
+        }
+        NativeEngine.addModel(tee.path, "tee")
+        val out = File(dir, "out").apply { mkdirs() }
+        fun slice(on: String) = SliceResult.parse(
+            NativeEngine.slice(
+                presets.printer, presets.defaultPrint, arrayOf(presets.defaultFilament),
+                arrayOf("make_overhang_printable"), arrayOf(on), out.path + "/",
+            ) { _, _ -> }
+        ).also { assertTrue(it.error ?: "", it.ok) }
+        // Leftmost extrusion just under the arms, at 18 mm.
+        fun leftAt18(path: String): Double {
+            var z = 0.0
+            var left = Double.MAX_VALUE
+            for (line in File(path).readLines()) {
+                if (!line.startsWith("G1")) continue
+                Regex("Z([-\\d.]+)").find(line)?.let { z = it.groupValues[1].toDouble() }
+                val x = Regex("X([-\\d.]+)").find(line)?.groupValues?.get(1)?.toDouble()
+                if (x != null && line.contains(" E") && Math.abs(z - 18.0) < 0.01) left = minOf(left, x)
+            }
+            return left
+        }
+        val plain = slice("0")
+        val plainLeft = leftAt18(plain.path!!)
+        val printable = slice("1")
+        // At 45° the wedge under each arm reaches 13 mm out at 2 mm under it; the post alone is 10 mm wide.
+        assertTrue(leftAt18(printable.path!!) < plainLeft - 10.0)
+        assertTrue(printable.filamentGrams > plain.filamentGrams)
+        // PrusaSlicer's stability check no longer finds overhangs that collapse.
+        assertTrue(printable.warnings.none { it.contains("Collapsing overhang") || it.contains("Loose extrusions") })
+    }
+
+    @Test
     fun checksAndFixesPrintability() {
         fun check(id: Long) = ObjectCheck.parseList(NativeEngine.checkPlate(40f, false, true)).single { it.id == id }
 

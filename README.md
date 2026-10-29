@@ -48,6 +48,10 @@ Android 12+ and light and dark themes.
   height ranges with settings of their own, such as finer layers for a detailed top
 - **Z anti-aliasing** (Settings → Layers and perimeters), ported from OrcaSlicer: on sloped and curved tops
   the nozzle follows the model within a layer, which smooths the visible steps
+- **Make overhangs printable** (Supports sheet, or Settings → Support material), ported from OrcaSlicer,
+  which has it from Cura: material goes under overhangs steeper than a chosen angle (45° from vertical by
+  default), so they print without supports. The model gets wedges of plastic under its overhangs; holes in
+  its base up to a set area can keep their opening
 - Kobra 3 profiles for 0.2, 0.4, 0.6 and 0.8 mm nozzles, with Anycubic's start macro (`G9111`), speeds,
   accelerations and filament presets (PLA, PLA+, PLA High Speed, PLA Matte/Silk/Glow/SE, PETG, ABS, ASA, TPU)
 - **Your printers:** several saved printers, each with its profile, connection and camera. Add one from
@@ -219,7 +223,7 @@ secrets: `ANDSLICE_KEYSTORE_BASE64` (`base64 -w0 release.jks`), `ANDSLICE_KEYSTO
 | `app/src/main/java/.../octoprint/` | OctoPrint and Moonraker clients and network discovery |
 | `app/src/main/java/...` | Compose UI (Material 3), view models, GL view and gestures |
 
-PrusaSlicer's sources are used unmodified apart from five small patches in `patches/`:
+PrusaSlicer's sources are used unmodified apart from six small patches in `patches/`:
 
 - `0001-libvgcode-opengl-es-rgba32f.patch` moves libvgcode's OpenGL ES path to RGBA32F textures, which the
   desktop path already uses since PrusaSlicer issue #12908. Without it, the ES path in 2.9.6 does not compile.
@@ -237,6 +241,10 @@ PrusaSlicer's sources are used unmodified apart from five small patches in `patc
   model, with flow scaled to the local layer height. The offsets ride on the per-point height and flow
   fractions PrusaSlicer already uses for scarf seams, so only G-code output changes. A contoured path is
   entered and left straight up and down, so travel moves never scrape the layer.
+- `0006-make-overhangs-printable.patch` adds `make_overhang_printable`, `make_overhang_printable_angle` and
+  `make_overhang_printable_hole_size`, from OrcaSlicer's port of CuraEngine's conical overhang: from the top
+  down, each layer gets the layer above it shrunk by how far an overhang at the angle reaches over one layer,
+  using each layer's own height so variable layer heights keep the angle.
 
 ## Limitations
 

@@ -154,6 +154,10 @@ object NativeEngine {
     external fun rendererSetExtruderColors(colors: FloatArray)
     external fun previewSetLayerRange(first: Int, last: Int)
     external fun previewSetMoveFraction(fraction: Float)
+    /** Layer range and move fraction in one update; GL thread. Does nothing when they did not change. */
+    external fun previewSetView(first: Int, last: Int, fraction: Float)
+    /** Toolpath segments drawn as their camera-facing side only, a quarter of the vertices; GL thread. */
+    external fun previewSetLowDetail(lowDetail: Boolean)
     external fun previewSetViewType(type: Int)
     external fun previewSetOptionVisible(option: Int, visible: Boolean)
     external fun previewSetRoleVisible(role: Int, visible: Boolean)

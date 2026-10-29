@@ -38,6 +38,10 @@ public:
     void        set_top_layer_only(bool enabled);
     // Moves 0..1 along the toolpaths of the top visible layer (1 = whole layer).
     void        set_move_fraction(float fraction);
+    // Layer range and move fraction together, with one update of the viewer; nothing when unchanged.
+    void        set_view(uint32_t first, uint32_t last, float fraction);
+    // Draws each toolpath segment as its side facing the camera only, with a quarter of the vertices.
+    void        set_low_detail(bool low_detail);
 
     // Legend and statistics of the loaded preview as JSON (thread safe, cached).
     std::string info_json() const;
@@ -54,6 +58,7 @@ private:
     uint32_t    m_last_layer  = UINT32_MAX;
     int         m_view_type   = 0;
     bool        m_travels     = false;
+    bool        m_low_detail  = false;
     mutable std::mutex m_info_mutex;
     std::string m_info = "{}";
 };

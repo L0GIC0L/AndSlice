@@ -1,5 +1,16 @@
 package io.github.l0gic0l.andslice.ui
 
+import kotlin.math.roundToInt
+import java.util.Locale
+import java.io.File
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import io.github.l0gic0l.andslice.ui.scene.SceneView
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import android.content.Context
 import android.Manifest
 import android.content.Intent
 import android.os.Build
@@ -91,6 +102,12 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
     }
     val scales = listOf(1f, 0.75f, 0.5f)
     val samples = listOf(0, 2, 4)
+    val turnSpeeds = listOf(0.6f, 1f, 1.6f)
+    val scope = rememberCoroutineScope()
+    // Cached files, computed off the main thread and again after clearing them.
+    var cacheBytes by remember { mutableStateOf<Long?>(null) }
+    var cacheVersion by remember { mutableIntStateOf(0) }
+    LaunchedEffect(cacheVersion) { cacheBytes = withContext(Dispatchers.IO) { cachedFiles(context).sumOf { it.totalSize() } } }
 
     Scaffold(
         topBar = {
@@ -128,6 +145,13 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
                         listOf("Half", "Narrow", "Off"), prefs.sidePanel.ordinal,
                     ) { prefs.sidePanel = PanelMode.entries[it] },
                     PrefRow.Toggle(
+                        "Resizable side panel",
+                        if (prefs.sidePanelWidth > 0f) "Dragged to ${prefs.sidePanelWidth.roundToInt()} dp. Double tap the edge to reset it"
+                        else "Drag the edge between the 3D view and the panel; double tap it to reset",
+                        prefs.resizableSidePanel,
+                        enabled = prefs.sidePanel != PanelMode.Off,
+                    ) { prefs.resizableSidePanel = it },
+                    PrefRow.Toggle(
                         "Split at the hinge",
                         "On a half-open foldable, the plate above the hinge and the controls below",
                         prefs.splitWhenFolded,
@@ -136,14 +160,49 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
                 group(
                     "3D view",
                     PrefRow.Segments(
-                        "Anti-aliasing", "Smoother edges, for a little more GPU work",
+                        "Camera",
+                        if (prefs.orthographic) "Parallel lines stay parallel, as in a technical drawing" else "Far things look smaller, as to the eye",
+                        listOf("Perspective", "Orthographic"), if (prefs.orthographic) 1 else 0,
+                    ) { prefs.orthographic = it == 1 },
+                    PrefRow.Segments(
+                        "Turn speed", "How far a drag turns the view",
+                        listOf("Slow", "Normal", "Fast"), turnSpeeds.indexOf(prefs.turnSpeed).let { if (it < 0) 1 else it },
+                    ) { prefs.turnSpeed = turnSpeeds[it] },
+                    PrefRow.Toggle(
+                        "Invert up and down", "Dragging up turns the view to look from above",
+                        prefs.invertVertical,
+                    ) { prefs.invertVertical = it },
+                    PrefRow.Toggle("Bed grid", null, prefs.showGrid) { prefs.showGrid = it },
+                )
+                group(
+                    "Performance",
+                    PrefRow.Segments(
+                        "Toolpaths in the preview",
+                        when (prefs.toolpathDetail) {
+                            SceneView.DETAIL_FULL -> "Always their full shape. Slow to turn on big prints"
+                            SceneView.DETAIL_SIMPLE -> "Always only their side facing you: a quarter of the GPU work"
+                            else -> "Only their side facing you while you turn or zoom, full shapes when you let go"
+                        },
+                        listOf("Detailed", "While moving", "Simple"), prefs.toolpathDetail.coerceIn(0, 2),
+                    ) { prefs.toolpathDetail = it },
+                    PrefRow.Segments(
+                        "Anti-aliasing", "Smoother edges, for more GPU work on every pixel",
                         listOf("Off", "2×", "4×"), samples.indexOf(prefs.antialiasing).coerceAtLeast(0),
                     ) { prefs.antialiasing = samples[it] },
                     PrefRow.Segments(
-                        "Resolution", "Lower is faster on slow GPUs and saves battery",
+                        "Resolution", "Lower draws fewer pixels and saves battery; it does not help with many toolpaths",
                         listOf("100%", "75%", "50%"), scales.indexOf(prefs.renderScale).coerceAtLeast(0),
                     ) { prefs.renderScale = scales[it] },
-                    PrefRow.Toggle("Bed grid", null, prefs.showGrid) { prefs.showGrid = it },
+                )
+                group(
+                    "Plate",
+                    PrefRow.Toggle(
+                        "Ask before clearing the plate", null, prefs.confirmClearPlate,
+                    ) { prefs.confirmClearPlate = it },
+                    PrefRow.Toggle(
+                        "Keep the plate between sessions", "The plate comes back when the app starts again",
+                        prefs.autosavePlate,
+                    ) { prefs.autosavePlate = it },
                 )
                 group(
                     "Behavior",
@@ -186,6 +245,18 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
                     ) { prefs.notificationSnapshots = it },
                 )
                 group(
+                    "Storage",
+                    PrefRow.Action(
+                        "Clear cached files",
+                        cacheBytes?.let { "${formatBytes(it)} of imported model copies, camera snapshots and web pages" } ?: "Counting…",
+                    ) {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { cachedFiles(context).forEach { it.deleteRecursively() } }
+                            cacheVersion++
+                        }
+                    },
+                )
+                group(
                     "About",
                     PrefRow.Action("AndSlice ${BuildConfig.VERSION_NAME}", "PrusaSlicer 2.9.6 engine · licenses") { showAbout = true },
                 )
@@ -194,6 +265,18 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
     }
 
     if (showAbout) AboutDialog(onDismiss = { showAbout = false })
+}
+
+/** Files in the app's cache that may go: everything but the G-code of the last slice, which printing and saving use. */
+private fun cachedFiles(context: Context): List<File> =
+    context.cacheDir.listFiles()?.filter { it.name != "gcode" }.orEmpty()
+
+private fun File.totalSize(): Long = walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> String.format(Locale.US, "%.1f GB", bytes / (1L shl 30).toDouble())
+    bytes >= 1L shl 20 -> String.format(Locale.US, "%.1f MB", bytes / (1L shl 20).toDouble())
+    else -> "${bytes / 1024} KB"
 }
 
 private fun LazyListScope.group(title: String, vararg rows: PrefRow) {

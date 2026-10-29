@@ -576,6 +576,16 @@ JNIEXPORT void JNICALL FN(previewSetLayerRange)(JNIEnv* env, jobject, jint first
     guarded_void(env, [&] { SceneRenderer::get().preview().set_layer_range(uint32_t(first), uint32_t(last)); });
 }
 
+JNIEXPORT void JNICALL FN(previewSetView)(JNIEnv* env, jobject, jint first, jint last, jfloat fraction)
+{
+    guarded_void(env, [&] { SceneRenderer::get().preview().set_view(uint32_t(std::max(first, 0)), uint32_t(std::max(last, 0)), fraction); });
+}
+
+JNIEXPORT void JNICALL FN(previewSetLowDetail)(JNIEnv* env, jobject, jboolean low_detail)
+{
+    guarded_void(env, [&] { SceneRenderer::get().preview().set_low_detail(low_detail); });
+}
+
 JNIEXPORT void JNICALL FN(previewSetMoveFraction)(JNIEnv* env, jobject, jfloat fraction)
 {
     guarded_void(env, [&] { SceneRenderer::get().preview().set_move_fraction(fraction); });

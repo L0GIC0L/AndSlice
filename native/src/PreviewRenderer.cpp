@@ -42,6 +42,7 @@ void PreviewRenderer::release()
 void PreviewRenderer::load(const GCodeInputData& data)
 {
     GCodeInputData copy = data;
+    m_viewer->set_low_detail(m_low_detail);
     m_viewer->reset_default_extrusion_roles_colors();
     m_viewer->set_view_type(EViewType(m_view_type));
     set_option_visible(int(EOptionType::Travels), m_travels);
@@ -94,6 +95,22 @@ void PreviewRenderer::set_move_fraction(float fraction)
     const Interval& enabled = m_viewer->get_view_enabled_range();
     const size_t last = enabled[0] + size_t(std::lround(m_move_fraction * float(enabled[1] - enabled[0])));
     m_viewer->set_view_visible_range(uint32_t(enabled[0]), uint32_t(std::max(last, enabled[0])));
+}
+
+void PreviewRenderer::set_view(uint32_t first, uint32_t last, float fraction)
+{
+    fraction = std::clamp(fraction, 0.f, 1.f);
+    // Each change makes libvgcode go over every toolpath vertex and upload its textures again.
+    if (m_loaded && first == m_first_layer && last == m_last_layer && fraction == m_move_fraction)
+        return;
+    m_move_fraction = fraction;
+    set_layer_range(first, last);
+}
+
+void PreviewRenderer::set_low_detail(bool low_detail)
+{
+    m_low_detail = low_detail;
+    m_viewer->set_low_detail(low_detail);
 }
 
 void PreviewRenderer::set_view_type(int type)

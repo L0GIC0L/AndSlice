@@ -32,6 +32,10 @@ class PreferencesViewModel(app: Application) : AndroidViewModel(app) {
     var dynamicColor by bool("dynamic_color", true)
 
     var sidePanel by enum("side_panel", PanelMode.Half)
+    /** The edge between the 3D view and the side panel can be dragged to resize the panel. */
+    var resizableSidePanel by bool("resizable_side_panel", true)
+    /** Width the side panel was dragged to, in dp; 0 is the layout's own width. */
+    var sidePanelWidth by float("side_panel_width", 0f)
     /** On a half-open foldable, the 3D view above the hinge and the controls below it. */
     var splitWhenFolded by bool("split_when_folded", true)
 
@@ -40,8 +44,16 @@ class PreferencesViewModel(app: Application) : AndroidViewModel(app) {
     /** Fraction of the screen resolution the 3D view is drawn at. */
     var renderScale by float("render_scale", 1f)
     var showGrid by bool("show_grid", true)
+    /** How the preview draws toolpaths: SceneView's DETAIL_ values. */
+    var toolpathDetail by int("toolpath_detail", 1)
+    var orthographic by bool("orthographic", false)
+    var turnSpeed by float("turn_speed", 1f)
+    var invertVertical by bool("invert_vertical", false)
 
     var openPreviewAfterSlicing by bool("open_preview_after_slicing", true)
+    var confirmClearPlate by bool("confirm_clear_plate", true)
+    /** The plate is saved as it changes and comes back when the app starts again. */
+    var autosavePlate by bool(KEY_AUTOSAVE_PLATE, true)
     var keepScreenOn by bool("keep_screen_on", true)
     /** Settings mode the settings open in: 0 Simple, 1 Advanced, 2 Expert. */
     var settingsMode by int("settings_mode", 1)
@@ -58,6 +70,8 @@ class PreferencesViewModel(app: Application) : AndroidViewModel(app) {
         const val PREFS = "app_preferences"
         const val KEY_PRINT_NOTIFICATIONS = "print_notifications"
         const val KEY_NOTIFICATION_SNAPSHOTS = "notification_snapshots"
+        /** Also read by the slicer view model. */
+        const val KEY_AUTOSAVE_PLATE = "autosave_plate"
     }
 
     private fun bool(key: String, default: Boolean) =

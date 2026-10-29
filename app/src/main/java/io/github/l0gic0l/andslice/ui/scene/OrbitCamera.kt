@@ -18,6 +18,12 @@ class OrbitCamera {
     /** Lowest pitch: the view may go under the bed, to see and paint an object's underside. */
     private val minPitchDeg = -85f
     private val fovDeg = 40f
+    /** Parallel projection, as in a technical drawing; sizes do not shrink with depth. */
+    var orthographic = false
+    /** Multiplies how far a drag turns the view. */
+    var turnSpeed = 1f
+    /** Dragging up turns the view up instead of down. */
+    var invertVertical = false
 
     /** Bed the camera was last framed on, so returning to the plate keeps the user's view. */
     var framedBed: String? = null
@@ -58,8 +64,9 @@ class OrbitCamera {
 
     fun orbit(dxPixels: Float, dyPixels: Float) {
         userMoved = true
-        yawDeg -= dxPixels * 0.3f
-        pitchDeg = (pitchDeg + dyPixels * 0.3f).coerceIn(minPitchDeg, 89f)
+        yawDeg -= dxPixels * 0.3f * turnSpeed
+        val dy = if (invertVertical) -dyPixels else dyPixels
+        pitchDeg = (pitchDeg + dy * 0.3f * turnSpeed).coerceIn(minPitchDeg, 89f)
         update()
     }
 
@@ -100,7 +107,15 @@ class OrbitCamera {
     fun update() {
         val e = eye()
         Matrix.setLookAtM(view, 0, e[0], e[1], e[2], targetX, targetY, targetZ, 0f, 0f, 1f)
-        Matrix.perspectiveM(projection, 0, fovDeg, aspect, max(1f, distance / 100f), distance * 10f + 1000f)
+        val near = max(1f, distance / 100f)
+        val far = distance * 10f + 1000f
+        if (orthographic) {
+            // The same view of the target as the perspective one: what the field of view spans there.
+            val halfHeight = distance * tan(Math.toRadians(fovDeg / 2.0)).toFloat()
+            Matrix.orthoM(projection, 0, -halfHeight * aspect, halfHeight * aspect, -halfHeight, halfHeight, near, far)
+        } else {
+            Matrix.perspectiveM(projection, 0, fovDeg, aspect, near, far)
+        }
         Matrix.multiplyMM(viewProj, 0, projection, 0, view, 0)
         Matrix.invertM(invViewProj, 0, viewProj, 0)
     }

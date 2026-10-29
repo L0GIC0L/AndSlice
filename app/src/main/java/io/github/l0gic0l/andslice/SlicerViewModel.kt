@@ -734,7 +734,13 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Puts the plate of the last session back; a file that does not load is dropped. */
+    /** App settings → Save the plate between sessions. */
+    private val autosaveEnabled: Boolean
+        get() = getApplication<Application>().getSharedPreferences(PreferencesViewModel.PREFS, Context.MODE_PRIVATE)
+            .getBoolean(PreferencesViewModel.KEY_AUTOSAVE_PLATE, true)
+
     private fun restorePlate(): List<PlateObject> {
+        if (!autosaveEnabled) autosaveFile.delete()
         if (!autosaveFile.exists()) return emptyList()
         return try {
             NativeEngine.openProject(autosaveFile.absolutePath)
@@ -763,7 +769,7 @@ class SlicerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun autosave() {
-        val empty = objects.isEmpty()
+        val empty = objects.isEmpty() || !autosaveEnabled
         withContext(projectThread) {
             try {
                 if (empty) {

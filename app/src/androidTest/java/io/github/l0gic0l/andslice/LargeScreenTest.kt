@@ -1,5 +1,9 @@
 package io.github.l0gic0l.andslice
 
+import androidx.compose.ui.test.doubleClick
+import androidx.compose.ui.test.swipe
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.geometry.Offset
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.DeviceConfigurationOverride
@@ -61,6 +65,23 @@ class LargeScreenTest {
         compose.onNodeWithTag("settings-search").assertExists()
         compose.onNodeWithText("Infill").performClick()
         waitForText("Fill density")
+    }
+
+    @Test
+    fun sidePanelResizesByDraggingItsEdge() {
+        startApp()
+        val prefs = compose.runOnUiThread { ViewModelProvider(compose.activity)[PreferencesViewModel::class.java] }
+        compose.runOnUiThread {
+            prefs.resizableSidePanel = true
+            prefs.sidePanelWidth = 0f
+        }
+        compose.onNodeWithContentDescription("Side panel width. Drag to resize, double tap to reset.")
+            .performTouchInput { swipe(center, center - Offset(150f, 0f), durationMillis = 400) }
+        // Dragged to the left, the panel gets wider than half of the window beside the rail.
+        compose.waitUntil(5_000) { prefs.sidePanelWidth > 0f }
+        compose.onNodeWithContentDescription("Side panel width. Drag to resize, double tap to reset.")
+            .performTouchInput { doubleClick() }
+        compose.waitUntil(5_000) { prefs.sidePanelWidth == 0f }
     }
 
     @Test

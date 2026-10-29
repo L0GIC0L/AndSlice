@@ -91,10 +91,18 @@ Android 12+ and light and dark themes.
   (printer, profiles, filament slots, quick settings, objects) and a Settings tab with every slicing option,
   and the Slice button docked under it; printer cards in columns, settings pages as a list beside the
   options, and a split view when a foldable is half open on a table. The 3D view frames the bed for the
-  shape of the screen.
-- **Preferences:** light, dark or system theme, wallpaper colors, the side panel (half, narrow or off),
-  3D view anti-aliasing, resolution and bed grid, whether the preview opens after slicing, keeping the
-  screen on while watching the printer, the settings mode the settings open in, and print notifications
+  shape of the screen. The edge between the 3D view and the side panel can be dragged to resize the panel
+  (a double tap resets it).
+- **Preferences:** light, dark or system theme, wallpaper colors, the side panel (half, narrow or off,
+  resizable or not), a perspective or orthographic camera, turn speed and inverted up/down turning, bed
+  grid, how the preview draws toolpaths (full shapes, simpler ones while the view moves, or always simpler),
+  anti-aliasing and resolution, asking before clearing the plate, keeping the plate between sessions,
+  whether the preview opens after slicing, keeping the screen on while watching the printer, the settings
+  mode the settings open in, print notifications, and clearing cached files
+- **Preview speed:** on big prints the layer and move sliders skip to their latest position instead of
+  queueing every step (each one makes libvgcode go over all toolpath vertices), and while a finger turns
+  or zooms the view, each toolpath segment is drawn as its side facing the camera, with a quarter of the
+  vertices; lowering the resolution does not help there, as the work is per vertex, not per pixel
 
 ## Download
 
@@ -223,7 +231,7 @@ secrets: `ANDSLICE_KEYSTORE_BASE64` (`base64 -w0 release.jks`), `ANDSLICE_KEYSTO
 | `app/src/main/java/.../octoprint/` | OctoPrint and Moonraker clients and network discovery |
 | `app/src/main/java/...` | Compose UI (Material 3), view models, GL view and gestures |
 
-PrusaSlicer's sources are used unmodified apart from six small patches in `patches/`:
+PrusaSlicer's sources are used unmodified apart from seven small patches in `patches/`:
 
 - `0001-libvgcode-opengl-es-rgba32f.patch` moves libvgcode's OpenGL ES path to RGBA32F textures, which the
   desktop path already uses since PrusaSlicer issue #12908. Without it, the ES path in 2.9.6 does not compile.
@@ -245,6 +253,8 @@ PrusaSlicer's sources are used unmodified apart from six small patches in `patch
   `make_overhang_printable_hole_size`, from OrcaSlicer's port of CuraEngine's conical overhang: from the top
   down, each layer gets the layer above it shrunk by how far an overhang at the angle reaches over one layer,
   using each layer's own height so variable layer heights keep the angle.
+- `0007-libvgcode-low-detail-segments.patch` adds `Viewer::set_low_detail()`: each toolpath segment is then
+  drawn as the one side of its box that the vertex shader turns towards the camera, 6 vertices instead of 24.
 
 ## Limitations
 

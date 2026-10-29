@@ -1,5 +1,13 @@
 package io.github.l0gic0l.andslice.ui
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.background
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -345,6 +353,7 @@ private fun SlicerScreen(
     val context = LocalContext.current
     var showAbout by remember { mutableStateOf(false) }
     var showCheck by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
     val openModels = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.importModels(context, uris)
     }
@@ -425,7 +434,10 @@ private fun SlicerScreen(
                                     text = { Text("Clear plate") },
                                     leadingIcon = { Icon(Icons.Default.DeleteSweep, null) },
                                     enabled = vm.objects.isNotEmpty(),
-                                    onClick = { menu = false; vm.clearPlate() },
+                                    onClick = {
+                                        menu = false
+                                        if (prefs.confirmClearPlate) confirmClear = true else vm.clearPlate()
+                                    },
                                 )
                             }
                             if (!navigationInRail) {
@@ -468,7 +480,10 @@ private fun SlicerScreen(
                 val toolMaxHeight = maxHeight * 0.6f
                 // Anti-aliasing is chosen when the GL surface is made, so a change makes a new view.
                 key(prefs.antialiasing) {
-                    Viewport(vm, camera, Modifier.fillMaxSize(), prefs.antialiasing, prefs.renderScale, prefs.showGrid)
+                    Viewport(
+                        vm, camera, Modifier.fillMaxSize(), prefs.antialiasing, prefs.renderScale, prefs.showGrid,
+                        prefs.toolpathDetail, prefs.orthographic, prefs.turnSpeed, prefs.invertVertical,
+                    )
                 }
 
                 if (vm.busyMessage != null) {
@@ -508,15 +523,27 @@ private fun SlicerScreen(
                 scene(Modifier.weight(1f).fillMaxWidth())
                 panel(Modifier.weight(1f).fillMaxWidth())
             }
-            SlicerLayout.Half -> Row(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                scene(Modifier.weight(1f).fillMaxHeight())
-                VerticalDivider()
-                panel(Modifier.weight(1f).fillMaxHeight())
-            }
-            SlicerLayout.Narrow -> Row(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                scene(Modifier.weight(1f).fillMaxHeight())
-                VerticalDivider()
-                panel(Modifier.width(400.dp).fillMaxHeight())
+            SlicerLayout.Half, SlicerLayout.Narrow -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+                val layoutWidth = if (layout == SlicerLayout.Half) maxWidth / 2 else 400.dp
+                // The panel's rows need about 300 dp; the 3D view keeps at least 320 dp.
+                val minWidth = 300.dp
+                val maxPanelWidth = (maxWidth - 320.dp).coerceAtLeast(minWidth)
+                val chosen = if (prefs.resizableSidePanel && prefs.sidePanelWidth > 0f) prefs.sidePanelWidth.dp else layoutWidth
+                var width by remember(layout, chosen) { mutableStateOf(chosen) }
+                val density = LocalDensity.current
+                Row(Modifier.fillMaxSize()) {
+                    scene(Modifier.weight(1f).fillMaxHeight())
+                    if (prefs.resizableSidePanel) {
+                        PanelDragHandle(
+                            onDrag = { delta -> width = (width - with(density) { delta.toDp() }).coerceIn(minWidth, maxPanelWidth) },
+                            onDragStopped = { prefs.sidePanelWidth = width.value },
+                            onReset = { prefs.sidePanelWidth = 0f; width = layoutWidth },
+                        )
+                    } else {
+                        VerticalDivider()
+                    }
+                    panel(Modifier.width(width.coerceIn(minWidth, maxPanelWidth)).fillMaxHeight())
+                }
             }
             SlicerLayout.Single -> scene(Modifier.fillMaxSize().padding(padding))
         }
@@ -525,6 +552,36 @@ private fun SlicerScreen(
     if (vm.slicing) SlicingDialog(vm)
     if (showAbout) AboutDialog(onDismiss = { showAbout = false })
     if (showCheck) PrintCheckSheet(vm, onDismiss = { showCheck = false })
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Clear the plate?") },
+            text = { Text("All objects on the plate are removed. Undo brings them back.") },
+            confirmButton = { TextButton(onClick = { confirmClear = false; vm.clearPlate() }) { Text("Clear") } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/**
+ * The edge between the 3D view and the side panel, which a finger drags to resize the panel; a
+ * double tap gives it its layout's width back. Drawn as Material 3's pane drag handle.
+ */
+@Composable
+private fun PanelDragHandle(onDrag: (Float) -> Unit, onDragStopped: () -> Unit, onReset: () -> Unit) {
+    val state = rememberDraggableState(onDrag)
+    Box(
+        Modifier
+            .fillMaxHeight()
+            .width(16.dp)
+            .draggable(state, Orientation.Horizontal, onDragStopped = { onDragStopped() })
+            .pointerInput(Unit) { detectTapGestures(onDoubleTap = { onReset() }) }
+            .semantics { contentDescription = "Side panel width. Drag to resize, double tap to reset." },
+        contentAlignment = Alignment.Center,
+    ) {
+        VerticalDivider()
+        Box(Modifier.size(width = 4.dp, height = 48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline))
+    }
 }
 
 @Composable

@@ -81,6 +81,12 @@ class SceneView(
 
             override fun onDrawFrame(gl: GL10?) {
                 val (view, projection) = matrices
+                pendingPreviewView.getAndSet(null)?.let { (first, last, fraction) -> NativeEngine.previewSetView(first, last, fraction) }
+                val low = toolpathDetail == DETAIL_SIMPLE || (toolpathDetail == DETAIL_SIMPLE_WHILE_MOVING && touching)
+                if (low != lowDetail) {
+                    lowDetail = low
+                    NativeEngine.previewSetLowDetail(low)
+                }
                 NativeEngine.rendererDraw(view, projection, mode)
                 val info = NativeEngine.previewInfoJson()
                 if (info != lastPreviewInfo) {
@@ -120,6 +126,34 @@ class SceneView(
     fun publishCamera() {
         camera.update()
         matrices = camera.view.copyOf() to camera.projection.copyOf()
+        requestRender()
+    }
+
+    // ------------------------------------------------------------------ preview
+
+    /** How toolpaths are drawn in the preview: [DETAIL_FULL], [DETAIL_SIMPLE_WHILE_MOVING] or [DETAIL_SIMPLE]. */
+    @Volatile var toolpathDetail = DETAIL_SIMPLE_WHILE_MOVING
+
+    companion object {
+        /** Toolpaths always with their full shape. */
+        const val DETAIL_FULL = 0
+        /** Toolpaths as their camera-facing side while a finger is on the view, a quarter of the vertices. */
+        const val DETAIL_SIMPLE_WHILE_MOVING = 1
+        const val DETAIL_SIMPLE = 2
+    }
+
+    // Latest layer range and move fraction. The GL thread applies them once per frame, as every change
+    // makes libvgcode go over all toolpath vertices; a slider dragged faster than that skips steps.
+    private val pendingPreviewView = AtomicReference<Triple<Int, Int, Float>?>(null)
+
+    // A finger is on the view; the preview may draw simpler toolpaths meanwhile.
+    @Volatile private var touching = false
+    // What the GL thread last told the preview (GL thread only).
+    private var lowDetail = false
+
+    /** Shows the layers [first]..[last] of the preview, with [fraction] of the top layer's moves. */
+    fun setPreviewView(first: Int, last: Int, fraction: Float) {
+        pendingPreviewView.set(Triple(first, last, fraction))
         requestRender()
     }
 
@@ -218,6 +252,7 @@ class SceneView(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                touching = true
                 multiTouch = false
                 lastX = event.x
                 lastY = event.y
@@ -284,6 +319,9 @@ class SceneView(
                 }
                 if (draggingId >= 0 || draggingTower) moveObjectDrag(event.x, event.y, done = true)
                 finishObjectDrag()
+                touching = false
+                // Back to full detail once the view stands still.
+                if (toolpathDetail == DETAIL_SIMPLE_WHILE_MOVING && mode == 1) requestRender()
             }
         }
         return true

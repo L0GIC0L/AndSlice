@@ -33,6 +33,11 @@ fun Viewport(
     antialiasing: Int = 4,
     renderScale: Float = 1f,
     showGrid: Boolean = true,
+    /** One of SceneView's DETAIL_ values. */
+    toolpathDetail: Int = SceneView.DETAIL_SIMPLE_WHILE_MOVING,
+    orthographic: Boolean = false,
+    turnSpeed: Float = 1f,
+    invertVertical: Boolean = false,
 ) {
     val context = LocalContext.current
     val view = remember {
@@ -112,13 +117,9 @@ fun Viewport(
         view.mode = if (vm.mode == ViewMode.Preview) 1 else 0
         view.requestRender()
     }
-    LaunchedEffect(vm.layerRange) {
-        val r = vm.layerRange
-        view.onGlThread { NativeEngine.previewSetLayerRange(r.first, r.last) }
-    }
-    LaunchedEffect(vm.moveFraction) {
-        val f = vm.moveFraction
-        view.onGlThread { NativeEngine.previewSetMoveFraction(f) }
+    // Sliders move faster than the preview can follow on big prints; the view keeps only the latest.
+    LaunchedEffect(vm.layerRange, vm.moveFraction) {
+        view.setPreviewView(vm.layerRange.first, vm.layerRange.last, vm.moveFraction)
     }
     LaunchedEffect(vm.viewType) {
         val t = vm.viewType
@@ -133,11 +134,18 @@ fun Viewport(
         val r = vm.layerRange
         val f = vm.moveFraction
         val t = vm.viewType
-        view.onGlThread {
-            NativeEngine.previewSetViewType(t)
-            NativeEngine.previewSetLayerRange(r.first, r.last)
-            NativeEngine.previewSetMoveFraction(f)
-        }
+        view.onGlThread { NativeEngine.previewSetViewType(t) }
+        view.setPreviewView(r.first, r.last, f)
+    }
+    LaunchedEffect(toolpathDetail) {
+        view.toolpathDetail = toolpathDetail
+        view.requestRender()
+    }
+    LaunchedEffect(orthographic, turnSpeed, invertVertical) {
+        camera.orthographic = orthographic
+        camera.turnSpeed = turnSpeed
+        camera.invertVertical = invertVertical
+        view.publishCamera()
     }
     LaunchedEffect(vm.renderTick) { view.requestRender() }
     LaunchedEffect(renderScale) { view.renderScale = renderScale }

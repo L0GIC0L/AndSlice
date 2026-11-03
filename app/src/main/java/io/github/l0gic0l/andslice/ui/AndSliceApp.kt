@@ -266,6 +266,7 @@ fun AndSliceApp(vm: SlicerViewModel, printer: PrinterViewModel, prefs: Preferenc
                                 PrinterScreen(
                                     printer, snackbar, onBack = null,
                                     keepScreenOn = prefs.keepScreenOn,
+                                    cameraMode = prefs.cameraMode,
                                     onAddPrinter = { screen = Screen.AddPrinter },
                                     onRemovePrinter = ::removePrinter,
                                     onOpenWeb = { screen = Screen.PrinterWeb },

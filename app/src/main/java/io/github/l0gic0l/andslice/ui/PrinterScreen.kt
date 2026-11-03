@@ -1,5 +1,8 @@
 package io.github.l0gic0l.andslice.ui
 
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -121,6 +124,7 @@ fun PrinterScreen(
     onRemovePrinter: (SavedPrinter) -> Unit,
     onOpenWeb: () -> Unit,
     keepScreenOn: Boolean = false,
+    cameraMode: Int = CameraMode.LIVE,
 ) {
     val view = LocalView.current
     DisposableEffect(view, keepScreenOn) {
@@ -132,9 +136,11 @@ fun PrinterScreen(
     var confirmStop by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    // Live status while this screen is shown.
+    // Live status while this screen is shown and the app is on screen; in the background the print
+    // notification keeps track of a print instead.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(active.id, printer.configured, editing) {
-        if (printer.configured && !editing) printer.pollStatus()
+        if (printer.configured && !editing) lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { printer.pollStatus() }
     }
 
     Scaffold(
@@ -179,7 +185,7 @@ fun PrinterScreen(
                 verticalItemSpacing = 16.dp,
                 modifier = Modifier.fillMaxSize().padding(padding),
             ) {
-                item(key = "camera") { WebcamCard(printer) }
+                item(key = "camera") { WebcamCard(printer, cameraMode) }
                 item(key = "status") { StatusCard(printer) }
                 printer.status?.takeIf { it.fileName != null }?.let { status -> item(key = "job") { JobCard(printer, status) } }
                 item(key = "files") { PrinterFilesCard(printer) }
@@ -395,10 +401,10 @@ private fun ConnectionForm(printer: PrinterViewModel, active: SavedPrinter, onDo
 }
 
 @Composable
-private fun WebcamCard(printer: PrinterViewModel) {
+private fun WebcamCard(printer: PrinterViewModel, cameraMode: Int) {
     OutlinedCard {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            WebcamView(printer.webcam, printer.apiKey)
+            WebcamView(printer.webcam, printer.apiKey, mode = cameraMode)
         }
     }
 }

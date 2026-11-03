@@ -77,7 +77,8 @@ Android 12+ and light and dark themes.
   progress and pause or cancel the job. The app finds out which server it is talking to; a Kobra 3 running
   Rinkhals only needs its IP address.
 - **Printer control:** live camera (MJPEG or snapshots), temperatures and preheat, homing, jogging X/Y/Z,
-  fan and motors, a G-code console and an emergency stop
+  fan and motors, a G-code console and an emergency stop. The camera can also show a picture every 2 s or
+  stay off until tapped (App settings → Printing), as a live stream can use several GB an hour
 - **Web interface:** the printer's Mainsail, Fluidd or OctoPrint page inside the app, or in the browser.
   For Rinkhals the app finds Mainsail on port 4409.
 - **Files on the printer:** the G-code stored on the printer with thumbnails and print times, to print again
@@ -147,6 +148,9 @@ With Moonraker the app uses Moonraker's own API, because its OctoPrint emulation
 The camera comes from Moonraker's webcam list (as set up in Mainsail or Fluidd), the usual
 `/webcam/?action=stream` path that Rinkhals serves, or OctoPrint's webcam settings; any MJPEG or snapshot
 address can also be entered for the printer.
+The camera, the printer status updates and the printer's web page load only while the app is on screen.
+In the background they stop, and only the print notification keeps track of a running print (a status
+check every 10 s and, if turned on, one camera picture a minute).
 Print servers are usually reached over plain HTTP on the local network, so the app allows cleartext HTTP. The
 API key is stored in the app's private storage.
 

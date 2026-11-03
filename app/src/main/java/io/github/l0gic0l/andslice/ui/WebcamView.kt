@@ -17,6 +17,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import io.github.l0gic0l.andslice.octoprint.grabCameraFrame
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,39 +47,51 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 
+/** What the printer screen shows of the camera; App settings → Printing → Camera. */
+object CameraMode {
+    /** The MJPEG stream: smooth, but often gigabytes an hour. */
+    const val LIVE = 0
+    /** One picture every [SNAPSHOT_INTERVAL_MS]. */
+    const val SNAPSHOTS = 1
+    /** Nothing until asked for. */
+    const val OFF = 2
+    const val SNAPSHOT_INTERVAL_MS = 2_000L
+}
+
 /**
- * Live picture of a printer camera: the MJPEG stream when there is one, otherwise the
- * snapshot refreshed every second. Streaming stops when the view leaves the screen.
+ * Picture of a printer camera: the MJPEG stream when there is one, otherwise the snapshot
+ * refreshed every second, or with [mode] a picture every two seconds or none until asked for.
+ * It loads only while the app is on screen: in the background, and when the view leaves the
+ * screen, the connection closes.
  */
 @Composable
-fun WebcamView(webcam: Webcam?, apiKey: String, modifier: Modifier = Modifier) {
+fun WebcamView(webcam: Webcam?, apiKey: String, modifier: Modifier = Modifier, mode: Int = CameraMode.LIVE) {
     var image by remember(webcam) { mutableStateOf<ImageBitmap?>(null) }
     var error by remember(webcam) { mutableStateOf<String?>(null) }
+    // With the camera off, a tap shows it live until the screen is left.
+    var shown by remember(webcam) { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
 
-    LaunchedEffect(webcam) {
-        if (webcam == null) return@LaunchedEffect
-        withContext(Dispatchers.IO) {
-            while (isActive) {
-                try {
-                    val stream = webcam.streamUrl
-                    if (stream != null) streamFrames(stream, apiKey) { image = it; error = null }
-                    else snapshotLoop(webcam.snapshotUrl!!, apiKey) { image = it; error = null }
-                } catch (e: Exception) {
-                    currentCoroutineContext().ensureActive()
-                    // Fall back to snapshots when the stream does not work.
-                    val snapshot = webcam.snapshotUrl
-                    if (snapshot != null && webcam.streamUrl != null) {
-                        try {
-                            snapshotLoop(snapshot, apiKey) { image = it; error = null }
-                        } catch (e2: Exception) {
-                            currentCoroutineContext().ensureActive()
-                            error = "Camera unavailable (${e2.message ?: e2.javaClass.simpleName})"
+    LaunchedEffect(webcam, mode, shown) {
+        if (webcam == null || (mode == CameraMode.OFF && !shown)) return@LaunchedEffect
+        // Cancelled when the app goes to the background, and started again when it comes back.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            withContext(Dispatchers.IO) {
+                if (mode == CameraMode.SNAPSHOTS) {
+                    // One picture at a time: the snapshot, or the first frame of the stream.
+                    while (isActive) {
+                        val frame = grabCameraFrame(webcam, apiKey)?.let(::decode)?.asImageBitmap()
+                        if (frame != null) {
+                            image = frame
+                            error = null
+                        } else if (image == null) {
+                            error = "Camera unavailable"
                         }
-                    } else {
-                        error = "Camera unavailable (${e.message ?: e.javaClass.simpleName})"
+                        delay(CameraMode.SNAPSHOT_INTERVAL_MS)
                     }
+                } else {
+                    cameraLoop(webcam, apiKey, onFrame = { image = it; error = null }, onError = { error = it })
                 }
-                delay(3_000) // retry after a dropped connection
             }
         }
     }
@@ -89,6 +106,10 @@ fun WebcamView(webcam: Webcam?, apiKey: String, modifier: Modifier = Modifier) {
         val frame = image
         when {
             webcam == null -> NoCamera("No camera found. Set its address in the printer's settings.")
+            mode == CameraMode.OFF && !shown -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                NoCamera("The camera is off in App settings, to save data.")
+                TextButton(onClick = { shown = true }) { Text("Show the camera") }
+            }
             frame != null -> Image(
                 frame,
                 contentDescription = "Printer camera",
@@ -102,6 +123,32 @@ fun WebcamView(webcam: Webcam?, apiKey: String, modifier: Modifier = Modifier) {
             error != null -> NoCamera(error!!)
             else -> CircularProgressIndicator()
         }
+    }
+}
+
+/** The stream, or the snapshot when there is no stream or it fails, again after a dropped connection. */
+private suspend fun cameraLoop(webcam: Webcam, apiKey: String, onFrame: (ImageBitmap) -> Unit, onError: (String) -> Unit) {
+    while (currentCoroutineContext().isActive) {
+        try {
+            val stream = webcam.streamUrl
+            if (stream != null) streamFrames(stream, apiKey, onFrame)
+            else snapshotLoop(webcam.snapshotUrl!!, apiKey, onFrame)
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            // Fall back to snapshots when the stream does not work.
+            val snapshot = webcam.snapshotUrl
+            if (snapshot != null && webcam.streamUrl != null) {
+                try {
+                    snapshotLoop(snapshot, apiKey, onFrame)
+                } catch (e2: Exception) {
+                    currentCoroutineContext().ensureActive()
+                    onError("Camera unavailable (${e2.message ?: e2.javaClass.simpleName})")
+                }
+            } else {
+                onError("Camera unavailable (${e.message ?: e.javaClass.simpleName})")
+            }
+        }
+        delay(3_000) // retry after a dropped connection
     }
 }
 

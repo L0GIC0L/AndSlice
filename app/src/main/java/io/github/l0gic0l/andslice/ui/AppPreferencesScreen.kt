@@ -237,6 +237,15 @@ fun AppPreferencesScreen(prefs: PreferencesViewModel, onBack: (() -> Unit)?) {
                             }
                         }
                     },
+                    PrefRow.Segments(
+                        "Camera on the printer screen",
+                        when (prefs.cameraMode) {
+                            CameraMode.SNAPSHOTS -> "A picture every 2 seconds: a small part of the data of live video"
+                            CameraMode.OFF -> "Shown only when you tap it"
+                            else -> "Live video. A printer camera can use several GB an hour on Wi-Fi"
+                        },
+                        listOf("Live", "Pictures", "Off"), prefs.cameraMode.coerceIn(0, 2),
+                    ) { prefs.cameraMode = it },
                     PrefRow.Toggle(
                         "Camera in the notification",
                         "A snapshot from the printer's camera, once a minute",

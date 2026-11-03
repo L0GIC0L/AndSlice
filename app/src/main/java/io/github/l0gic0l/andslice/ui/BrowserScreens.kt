@@ -1,5 +1,9 @@
 package io.github.l0gic0l.andslice.ui
 
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
+import androidx.compose.runtime.DisposableEffect
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -244,6 +248,8 @@ fun PrinterWebScreen(url: String?, error: String?, onClose: () -> Unit) {
                         onProgress = { progress = it },
                         onPageChanged = { canGoBack = it.canGoBack() },
                         modifier = Modifier.weight(1f).fillMaxWidth(),
+                        // Mainsail and Fluidd keep the camera streaming; the page loads again on return.
+                        stopInBackground = true,
                     )
                 }
             }
@@ -276,7 +282,40 @@ private fun WebPage(
     modifier: Modifier = Modifier,
     onDownload: ((DownloadRequest) -> Unit)? = null,
     onBlob: ((String, ByteArray) -> Unit)? = null,
+    /** In the background, also stop the page's loads, such as a camera stream, and reload it on return. */
+    stopInBackground: Boolean = false,
 ) {
+    // While the app is in the background the page is paused, with its JavaScript timers, as Android's
+    // WebView guide asks: otherwise pages go on loading and running, which costs data and battery.
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, webView) {
+        val view = webView ?: return@DisposableEffect onDispose {}
+        var stopped = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    view.onPause()
+                    view.pauseTimers()
+                    if (stopInBackground) {
+                        view.stopLoading()
+                        stopped = true
+                    }
+                }
+                Lifecycle.Event.ON_START -> {
+                    view.onResume()
+                    view.resumeTimers()
+                    if (stopped) {
+                        stopped = false
+                        view.reload()
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     AndroidView(
         modifier = modifier,
         factory = { context ->
@@ -342,11 +381,14 @@ private fun WebPage(
                     }
                 }
                 if (saved == null || restoreState(saved) == null) loadUrl(startUrl)
+                webView = this
                 onCreated(this)
             }
         },
         onRelease = { view ->
             onSave(Bundle().also { view.saveState(it) })
+            // Timers are paused for every WebView of the app; the next page needs them.
+            view.resumeTimers()
             view.destroy()
         },
     )

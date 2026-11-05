@@ -60,6 +60,8 @@ class PreferencesViewModel(app: Application) : AndroidViewModel(app) {
 
     /** A notification follows prints started from the app or seen on the printer screen. */
     var printNotifications by bool(KEY_PRINT_NOTIFICATIONS, true)
+    /** What the printer screen shows of the camera: CameraMode's values. */
+    var cameraMode by int("camera_mode", 0)
     /** The print notification shows a camera snapshot. */
     var notificationSnapshots by bool(KEY_NOTIFICATION_SNAPSHOTS, true)
     /** The app asked for Android's notification permission once already. */
